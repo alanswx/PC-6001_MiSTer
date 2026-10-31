@@ -84,7 +84,9 @@ end
 wire signed [23:0] s_a = sub(p + 3'd2), s_b = sub(p);   // phiA on cos, phiB on sin
 wire signed [23:0] chroma = (ca[1] ? -s_a : ca[0] ? s_a : 24'sd0) + (cb[1] ? -s_b : cb[0] ? s_b : 24'sd0);
 wire               sync   = hs_in ^ vs_in;
-wire               blank  = hb_in | vb_in;
+// the border runs on 16 dots into the blanking at each side (to 12.2 us after the sync edge), as a TV's overscan:
+// a step from blanking to the border at the window's edge would show as a coloured column
+wire               blank  = vb_in | hb_in && !(cnt >= 11'd348 && cnt < 11'd1756);
 wire               in_burst = !vs_in && (!mono || bw_tv < 3'd4) && cnt >= 11'd152 && cnt < 11'd224;   // 5.3-7.8 us after the sync edge
 
 reg signed [23:0] comp;

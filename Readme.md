@@ -132,8 +132,6 @@ which is B/W colours = None. Many TVs, and the RF output, colour it anyway, at w
 games such as Orion and EGGY were drawn for that. The four other settings give such a burst, named (as in
 PC6001VX) by the colours of stripes from an even dot and from an odd dot. Red/Blue is the default.
 
-Known: a thin coloured fringe at the left edge of the picture.
-
 ## Simulation
 
 `verilator/` has a headless simulator (from SMC777_MiSTer's harness): `make`, then for example

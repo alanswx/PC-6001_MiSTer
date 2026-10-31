@@ -95,7 +95,6 @@ Please include the tape name, the OSD settings, and a photo or screenshot.
 
 Known issues
 ------------
-- Composite video: a thin coloured fringe at the left edge.
 - No CSAVE, no WAV tapes. A .p6t tape plays without its gaps.
 - Disk: one drive, 1D images only; "SYS" boot disks do not start yet.
 - Only plain ROM cartridges (up to 16 KB); no RAM or bank-switched ones.
