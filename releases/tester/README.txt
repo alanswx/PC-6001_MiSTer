@@ -67,6 +67,14 @@ GRAPH = Alt (or Win, see Input page), STOP = F9 / Pause / End, KANA = F7,
 MODE = F8, PAGE = Page Up/Down, F1-F5 function keys (Shift: F6-F10).
 Letters without Shift are lower case, as on the real machine.
 
+Touch panel
+-----------
+The "[Utility] Touch Panel" cartridge draws with NEC's touch pad. Set
+Input > Port 2 to "Touch panel (mouse)" and load the cartridge: the mouse is
+the pen. A cross shows where it is; hold the left button to draw. The pen
+follows the mouse at a limited speed (the cartridge drops fast jumps), so
+the cross may trail a quick movement. Joystick 2 is off while this is set.
+
 What to test / report
 ---------------------
 - Which tapes load and run, at 7x and at Normal tape speed. Name the file.
@@ -74,6 +82,7 @@ What to test / report
 - Picture: wrong colours, glitches, sync problems on your display.
 - Joystick games (STICK / STRIG).
 - Cartridges: does each one start and play?
+- Touch Panel with a mouse: do strokes follow the pen?
 - Disks: format, SAVE, FILES, LOAD with Extended BASIC; any disk software
   for the plain PC-6001 you have.
 Please include the tape name, the OSD settings, and a photo or screenshot.

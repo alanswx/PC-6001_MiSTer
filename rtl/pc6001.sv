@@ -42,6 +42,10 @@ module pc6001 #(
 	input             kbd_us,          // keyboard layout: 1 US symbols, 0 JIS positions
 	input       [5:0] joy0,            // MiSTer: b0 right b1 left b2 down b3 up b4 fire1 b5 fire2
 	input       [5:0] joy1,
+	input             touch_en,        // OSD: a touch panel (rtl/touch_panel.sv) instead of joystick 2
+	input       [7:0] touch_x,
+	input       [7:0] touch_y,
+	input             touch_pen,
 
 	input             ioctl_download,
 	input       [7:0] ioctl_index,
@@ -435,12 +439,26 @@ end
 assign tape_hint = !tape_loaded || tape_motor ? 2'd0 : tape_pos == 0 && tape_basic ? 2'd1 : run_hint ? 2'd2 : 2'd0;
 
 // PSG: port A reads the joystick picked by port B bit 6 (0: joystick 2), active low:
-// b0 up b1 down b2 left b3 right b4 trigger 1 b5 trigger 2 (PC6001VX psgfm.cpp, joystick.cpp)
+// b0 up b1 down b2 left b3 right b4 trigger 1 b5 trigger 2 (PC6001VX psgfm.cpp, joystick.cpp). The touch panel
+// takes joystick 2's place when the OSD puts it there.
 wire [7:0] psg_dout;
 wire [9:0] psg_sound;
 wire [7:0] psg_iob;
 wire [5:0] joy_sel = psg_iob[6] ? joy0 : joy1;
-wire [7:0] joy_bits = ~{2'b00, joy_sel[5], joy_sel[4], joy_sel[0], joy_sel[1], joy_sel[2], joy_sel[3]};
+wire [7:0] touch_pa;
+wire [7:0] joy_bits = touch_en && !psg_iob[6] ? touch_pa :
+                      ~{2'b00, joy_sel[5], joy_sel[4], joy_sel[0], joy_sel[1], joy_sel[2], joy_sel[3]};
+
+touch_panel touch_panel
+(
+	.clk(clk_sys),
+	.reset(cpu_reset),
+	.pb(psg_iob),
+	.x(touch_x),
+	.y(touch_y),
+	.pen(touch_pen),
+	.pa(touch_pa)
+);
 
 jt49_bus psg
 (

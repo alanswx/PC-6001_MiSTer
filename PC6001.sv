@@ -57,7 +57,7 @@ assign VIDEO_ARY = (!ar) ? 12'd3 : 12'd0;
 // there), then the Machine, Video and Input pages. Settings take effect at the next reset (cfg) and "Changes
 // pending" shows until then; Tape speed, Tape overlay and Swap Alt/Win keys act at once.
 // Status bits: 0 reset, 1 memory, 2 unused (old Fast tape), 3 rewind tape, 4 tape speed, 5 tape overlay,
-// 6 swap Alt/Win keys, 7 remove cartridge, 121-122 aspect ratio.
+// 6 swap Alt/Win keys, 7 remove cartridge, 8 keyboard, 9 touch panel, 121-122 aspect ratio.
 `include "build_id.v"
 // Tape turbo factor: the Z80 and the tape run TURBO times as fast while the motor relay is on (rtl/pc6001.sv)
 localparam int TURBO = 7;
@@ -91,6 +91,7 @@ localparam CONF_STR = {
 
 	"P3O[8],Keyboard,JP (positions),US (symbols);",
 	"P3O[6],Swap Alt/Win keys,No,Yes;",
+	"P3O[9],Port 2,Joystick,Touch panel (mouse);",
 
 	"I,Tape ready (rewound),Tape too large (64 KB max),Cartridge too large (16 KB max),Disk too large (176 KB max),No disk unit (boot.rom without DISK.ROM);",
 	"v,0;",
@@ -104,6 +105,7 @@ wire   [1:0] buttons;
 wire [127:0] status;
 wire  [10:0] ps2_key_raw;
 wire  [31:0] joystick_0, joystick_1;
+wire  [24:0] ps2_mouse;
 
 wire         ioctl_download;
 wire   [7:0] ioctl_index;
@@ -136,6 +138,7 @@ hps_io #(.CONF_STR(CONF_STR), .VDNUM(1)) hps_io
 	.ps2_key(ps2_key_raw),
 	.joystick_0(joystick_0),
 	.joystick_1(joystick_1),
+	.ps2_mouse(ps2_mouse),
 
 	.ioctl_download(ioctl_download),
 	.ioctl_index(ioctl_index),
@@ -207,6 +210,18 @@ wire        tape_motor, tape_loaded, tape_too_big, tape_turbo_on, cart_too_big;
 wire [16:0] tape_position, tape_length;
 wire  [1:0] tape_hint;
 
+// Touch panel on joystick port 2 (OSD), worked with the mouse
+wire [7:0] touch_x, touch_y;
+wire       touch_pen;
+touch_mouse touch_mouse
+(
+	.clk(clk_sys),
+	.ps2_mouse(ps2_mouse),
+	.x(touch_x),
+	.y(touch_y),
+	.pen(touch_pen)
+);
+
 pc6001 #(.TURBO(TURBO)) pc6001
 (
 	.clk_sys(clk_sys),
@@ -220,6 +235,10 @@ pc6001 #(.TURBO(TURBO)) pc6001
 	.kbd_us(status[8]),
 	.joy0(joystick_0[5:0]),
 	.joy1(joystick_1[5:0]),
+	.touch_en(status[9]),
+	.touch_x(touch_x),
+	.touch_y(touch_y),
+	.touch_pen(touch_pen),
 
 	.ioctl_download(ioctl_download),
 	.ioctl_index(ioctl_index),
@@ -305,6 +324,22 @@ tape_status tape_status
 	.ack(tape_status_ack)
 );
 
+// the pen's place, while the touch panel is in
+wire [23:0] cursor_rgb;
+touch_cursor touch_cursor
+(
+	.clk(clk_sys),
+	.ce_pix(ce_pix),
+	.hblank(HBlank),
+	.vblank(VBlank),
+	.enable(status[9]),
+	.x(touch_x),
+	.y(touch_y),
+	.pen(touch_pen),
+	.rgb_in({R, G, B}),
+	.rgb_out(cursor_rgb)
+);
+
 tape_overlay #(.FACTOR(4'(TURBO))) tape_overlay
 (
 	.clk(clk_sys),
@@ -315,7 +350,7 @@ tape_overlay #(.FACTOR(4'(TURBO))) tape_overlay
 	.status(tape_status_word),
 	.req(tape_status_req),
 	.ack(tape_status_ack),
-	.rgb_in({R, G, B}),
+	.rgb_in(cursor_rgb),
 	.rgb_out({VGA_R, VGA_G, VGA_B})
 );
 

@@ -61,7 +61,10 @@ struct Options {
     bool        tape_turbo = false;           // --tape-turbo: OSD Tape speed 7x (the OSD default; here Normal)
     bool        tape_overlay = true;          // --no-tape-overlay: OSD Tape overlay Off
     struct JoyEv { uint32_t frame; int port; uint32_t bits; };
+struct TouchEv { uint32_t frame; int x, y, pen; };
     std::vector<JoyEv> joy;               // --joy FRAME:PORT:BITS
+    std::vector<TouchEv> touch;           // --touch FRAME:X,Y,PEN (puts the touch panel on joystick 2)
+    std::vector<TouchEv> mouse;           // --mouse FRAME:DX,DY,BTN: one PS/2 report into rtl/touch_mouse.sv
     std::set<uint32_t> resets;            // --reset-at FRAME
     std::string wav_file;                 // --wav
     uint32_t    save_frame = 0;           // --save-state FRAME:FILE
@@ -91,6 +94,8 @@ static void usage()
 "                         Space, then Return (up to 4 presses), as a user reading a title screen would\n"
 "  --type FRAME:TEXT      type TEXT from FRAME; \\n or {RETURN}, {STOP}, {F1}, {WAITn} ...\n"
 "  --type-rate P:R        frames per key press:release (default 4:4)\n"
+"  --touch F:X,Y,PEN      touch panel on joystick 2: from frame F, X 0-255, Y 0-255, PEN 1 = down\n"
+"  --mouse F:DX,DY,BTN    touch panel worked by the mouse (rtl/touch_mouse.sv): a report at frame F, DY down\n"
 "  --joy F:PORT:BITS      joystick PORT (0/1) from frame F: MiSTer bits (1 right 2 left 4 down 8 up 16/32 buttons)\n"
 "  --reset-at F           reset before frame F\n"
 "  --screenshot N         PNG of frame N (repeatable); --dump-every K: every Kth frame\n"
@@ -162,6 +167,16 @@ static bool parse_args(int argc, char **argv, Options &o)
         else if (a == "--kbd-us") o.kbd_us = true;
         else if (a == "--no-tape-overlay") o.tape_overlay = false;
         else if (a == "--reset-at") o.resets.insert(parse_num(next()));
+        else if (a == "--touch") {
+            Options::TouchEv t;
+            if (sscanf(next().c_str(), "%u:%d,%d,%d", &t.frame, &t.x, &t.y, &t.pen) != 4) { fprintf(stderr, "--touch wants F:X,Y,PEN\n"); return false; }
+            o.touch.push_back(t);
+        }
+        else if (a == "--mouse") {
+            Options::TouchEv t;
+            if (sscanf(next().c_str(), "%u:%d,%d,%d", &t.frame, &t.x, &t.y, &t.pen) != 4) { fprintf(stderr, "--mouse wants F:DX,DY,BTN\n"); return false; }
+            o.mouse.push_back(t);
+        }
         else if (a == "--joy") {
             Options::JoyEv j{};
             if (sscanf(next().c_str(), "%u:%d:%i", &j.frame, &j.port, &j.bits) != 3) { fprintf(stderr, "--joy wants F:PORT:BITS\n"); return false; }
@@ -484,6 +499,13 @@ void Sim::end_frame()
     auto range = ps2_schedule.equal_range(frame);
     for (auto it = range.first; it != range.second; ++it) ps2_queue.push_back(it->second);
     for (auto &j : opt.joy) if (j.frame == frame) { if (j.port) top->joy1 = j.bits; else top->joy0 = j.bits; }
+    for (auto &t : opt.touch) if (t.frame == frame) { top->touch_x = t.x; top->touch_y = t.y; top->touch_pen = t.pen; }
+    for (auto &m : opt.mouse) if (m.frame == frame) {
+        // PS/2: b4/b5 the x/y signs, y counts up
+        int dx = m.x, dy = -m.y;
+        uint32_t r = (m.pen & 1) | (dx < 0 ? 0x10 : 0) | (dy < 0 ? 0x20 : 0) | ((dx & 0xff) << 8) | ((dy & 0xff) << 16);
+        top->ps2_mouse = r | ((~top->ps2_mouse) & 0x1000000);
+    }
     if (opt.resets.count(frame)) reset_machine();
 }
 
@@ -564,6 +586,10 @@ int Sim::run()
     top->reset = 1;
     top->ps2_key = 0;
     top->joy0 = top->joy1 = 0;
+    top->touch_en = !opt.touch.empty() || !opt.mouse.empty();
+    top->touch_mouse_on = !opt.mouse.empty();
+    top->ps2_mouse = 0;
+    top->touch_x = top->touch_y = 0; top->touch_pen = 0;
     for (int i = 0; i < 16; i++) clock();
     if (!opt.load_file.empty()) {
         if (!load_state()) return 2;

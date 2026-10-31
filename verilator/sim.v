@@ -30,6 +30,12 @@ module top #(
    input         kbd_us,
    input   [5:0] joy0,
    input   [5:0] joy1,
+   input         touch_en,
+   input   [7:0] touch_x,
+   input   [7:0] touch_y,
+   input         touch_pen,
+   input         touch_mouse_on,   // the panel from ps2_mouse through rtl/touch_mouse.sv instead of touch_x/y/pen
+   input  [24:0] ps2_mouse,
    output        tape_motor /*verilator public_flat*/,
    output        tape_loaded /*verilator public_flat*/,
    output [16:0] tape_position /*verilator public_flat*/,
@@ -66,6 +72,14 @@ module top #(
    output [7:0]  dbg_io_data /*verilator public_flat*/
 );
 
+wire [7:0] m_x, m_y;
+wire       m_pen;
+touch_mouse touch_mouse_i(.clk(clk_sys), .ps2_mouse(ps2_mouse), .x(m_x), .y(m_y), .pen(m_pen));
+wire [7:0] tp_x = touch_mouse_on ? m_x : touch_x;
+wire [7:0] tp_y = touch_mouse_on ? m_y : touch_y;
+wire       tp_pen = touch_mouse_on ? m_pen : touch_pen;
+
+
 assign ioctl_wait = 1'b0;
 
 wire [15:0] audio;
@@ -89,6 +103,7 @@ pc6001 #(.TURBO(TURBO)) pc6001
    .ps2_key(ps2_key),
    .kbd_us(kbd_us),
    .joy0(joy0), .joy1(joy1),
+   .touch_en(touch_en), .touch_x(tp_x), .touch_y(tp_y), .touch_pen(tp_pen),
 
    .ioctl_download(ioctl_download),
    .ioctl_index(ioctl_index),
@@ -134,11 +149,19 @@ tape_status tape_status
    .status(tape_status_word), .req(tape_status_req), .ack(tape_status_ack)
 );
 
+wire [23:0] cursor_rgb;
+touch_cursor touch_cursor_i
+(
+   .clk(clk_sys), .ce_pix(ce_pix), .hblank(VGA_HB), .vblank(VGA_VB), .enable(touch_en),
+   .x(tp_x), .y(tp_y), .pen(tp_pen),
+   .rgb_in({R, G, B}), .rgb_out(cursor_rgb)
+);
+
 tape_overlay #(.FACTOR(4'(TURBO))) tape_overlay_i
 (
    .clk(clk_sys), .ce_pix(ce_pix), .hblank(VGA_HB), .vblank(VGA_VB), .enable(tape_overlay),
    .status(tape_status_word), .req(tape_status_req), .ack(tape_status_ack),
-   .rgb_in({R, G, B}), .rgb_out({VGA_R, VGA_G, VGA_B})
+   .rgb_in(cursor_rgb), .rgb_out({VGA_R, VGA_G, VGA_B})
 );
 
 endmodule

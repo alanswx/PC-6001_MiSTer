@@ -50,5 +50,18 @@ if [ "${TAPES:-0}" = 1 ]; then
 	# formatted in the simulator by the PC-6001 Series Disk Format Program, with TEST saved on it
 	run disk_extbasic 1200 --cart "$C/_OS_N60_Extended_BASIC_Microsoft_/[OS] N60 Extended BASIC (ROM cart).bin" \
 		--disk tests/disk/test.d88 --type '300:\n{WAIT60}\n{WAIT60}FILES\n{WAIT200}LOAD"TEST"\n{WAIT250}LIST 10-30\n'
+	# touch panel (rtl/touch_panel.sv): the Touch Panel cartridge draws a diagonal then a line back, the pen moving
+	# 2-3 steps a frame (it ignores jumps of 5 or more); the cross is the pen
+	t=(--touch 400:0,0,0); f=500
+	for i in $(seq 0 60); do t+=(--touch $f:$((40 + i * 3)),$((40 + i * 2)),1); f=$((f + 1)); done
+	for i in $(seq 0 50); do t+=(--touch $f:$((220 - i * 3)),160,1); f=$((f + 1)); done
+	t+=(--touch $f:70,160,0)
+	run touch_draw 700 --cart "$C/_Utility_Touch_Panel_NEC_/[Utility] Touch Panel (ROM cart).bin" "${t[@]}"
+	# the same through the mouse (rtl/touch_mouse.sv): a fast drag, 60 counts a frame; the point follows on a
+	# straight line, slowly enough for the cartridge to draw all of it
+	t=(--mouse 450:-120,-120,0 --mouse 520:0,0,1); f=530
+	for i in $(seq 1 6); do t+=(--mouse $f:60,30,1); f=$((f + 1)); done
+	t+=(--mouse 700:0,0,0)
+	run touch_mouse 760 --cart "$C/_Utility_Touch_Panel_NEC_/[Utility] Touch Panel (ROM cart).bin" "${t[@]}"
 fi
 exit $fail

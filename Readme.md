@@ -7,15 +7,16 @@ Work in progress: a MiSTer core for the NEC PC-6001 (1981), with the mkII, PC-66
 | Part | State |
 |---|---|
 | Z80 at 3.9936 MHz, waits on M1 / ROM / PSG, display bus steal (BUSRQ) | done (CSCP, PC6001VX timing) |
-| Memory: 16 KB BASIC ROM, CGROM at 6000h, 16 or 32 KB RAM | done |
+| Memory: 16 KB BASIC ROM, CGROM at 6000h, 16 or 32 KB RAM (32 KB is what a PC-6006 ROM/RAM cartridge gives) | done |
 | VDG (M5C6847P-1): text, semigraphics 4/6, all 8 graphics modes, CSS, internal font | done; NTSC artifact colours in mode 4 not yet |
 | 8255 mode 2 + sub CPU (keyboard, STICK/STRIG game keys, cassette) | high-level, after PC6001VX |
 | Timer interrupt (2.05 ms, first period half) | done |
 | AY-3-8910 (jt49), joysticks on port A | done; tone pitch matches MAME exactly (SOUND 0,254: 492 Hz); jt49's volume steps are 3 dB, MAME's flatter |
 | Cassette: .p6 / .cas / .p6t images, 100 bytes/s while the motor relay is on; 7x turbo; status bar; next-step hint | done: all 73 tester tapes load at 7x on a MiSTer (and at 3x in the simulator); 16 give the same result at Normal (docs/CASSETTE_STATUS.md) |
-| Cartridge ROM at 4000-7FFF (up to 16 KB), booted by BASIC's "AB" check | done (12 of 14 carts start; Crowley Manor stops at the same blank screen as in MAME; Touch Panel needs its pad) |
+| Cartridge ROM at 4000-7FFF (up to 16 KB), booted by BASIC's "AB" check | done (12 of 14 carts start; Crowley Manor stops at the same blank screen as in MAME; Touch Panel draws with the mouse as its pad, below) |
 | PC-6031 disk unit (one drive, .d88): its own Z80 running DISK.ROM, 16 KB RAM, a uPD765, the 8255 pair at D0h | done: N60 Extended BASIC formats, saves, lists and loads, in the simulator and on a MiSTer (below) |
-| Printer, RS-232C, voice, RAM/banked cartridges | not yet |
+| Touch panel on joystick port 2, worked by the mouse | done: draws in the simulator; on a MiSTer the cursor and taps work (drags not tried yet: the KVM used for testing cannot hold a button). The protocol is from the Touch Panel cartridge's code; no emulator has it |
+| Printer, RS-232C, voice, Senshi no Cartridge (banked) | not yet |
 | mkII / 6601 / SR | not yet |
 
 It boots N60-BASIC to "How Many Pages?", takes keyboard input, runs BASIC (including SCREEN 3/4 graphics) and
@@ -40,6 +41,7 @@ The menu follows the MiSTer computer-core OSD and tape standards:
 | Tape overlay | Video | On / Off: `TAPE ▶ m:ss/ m:ss x7` and a progress bar while the tape plays; the next step while it is stopped (below) |
 | Keyboard | Input | JP (default): US keys at the JIS key positions; US: the symbols printed on a US keyboard |
 | Swap Alt/Win keys | Input | Yes: the Win keys are GRAPH |
+| Port 2 | Input | joystick port 2: Joystick (default), or Touch panel (mouse): the pad the Touch Panel cartridge draws with (below) |
 
 Memory and Aspect ratio take effect at **Apply and reset** ("Changes pending" shows until then); the others act
 at once.
@@ -102,6 +104,15 @@ a joystick see the same keys in both. Held keys repeat after 500 ms, every 50 ms
 real machine), except KANA, PAGE, MODE, CAPS, STOP and F1-F5. GRAPH is Alt, STOP is F9 / Pause / End, KANA is F7, MODE is F8, PAGE is Page Up/Down,
 HOME is Home, INS / DEL are Insert / Delete (and Backspace). F1-F5 are the function keys (with Shift: F6-F10).
 Letters without Shift are lower case, as on the real keyboard.
+
+## Touch panel
+
+NEC's Touch Panel cartridge draws with a pad on joystick port 2. Set Input > Port 2 to Touch panel
+(mouse), load the cartridge, and the mouse is the pen: move it to place the cross, hold the left button to
+draw. The pad answers the way the cartridge's code asks (PSG port B bit 4 latches X or Y, bit 0 clocks it out
+MSB first on port A bit 2, port A bit 0 is the pen). The cartridge ignores jumps of 5 steps or more between two
+samples (a real pen moves smoothly; it samples about every 6 ms while drawing), so the pen point follows the
+mouse on a straight line at 333 steps a second, and the pen goes down only once it has caught up. While the option is on, joystick 2 is not connected.
 
 ## Simulation
 

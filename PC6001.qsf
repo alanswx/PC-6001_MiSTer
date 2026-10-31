@@ -322,3 +322,5 @@ set_global_assignment -name SYSTEMVERILOG_FILE rtl/dpram_tdp.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/d88_media.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/upd765_lite.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/pc6031.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/touch_panel.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/touch_mouse.sv
