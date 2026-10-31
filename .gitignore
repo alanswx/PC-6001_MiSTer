@@ -1,0 +1,50 @@
+# Quartus
+db/
+incremental_db/
+output_files/
+simulation/
+greybox_tmp/
+hc_output/
+.qsys_edit/
+hps_isw_handoff/
+sys/.qsys_edit/
+sys/vip/
+*.qws
+*.ppf
+*.ddb
+*.cdf
+*.sld
+*.qar
+*.rpt
+*.summary
+*.smsg
+*.done
+*.jdi
+*.pin
+*.sof
+*.rbf
+*.qdf
+*.bak
+build_id.v
+c5_pin_model_dump.txt
+PLLJ_PLLSPE_INFO.txt
+# simulation
+verilator/obj_dir*/
+verilator/gen/
+verilator/ghdl_work/
+verilator/out/
+verilator/out_build.log
+# local references, ROMs and software (not redistributed)
+refs/
+rom/
+rom.zip
+quartus_build.log
+
+# releases keep their cores and boot.rom
+!releases/**/*.rbf
+
+# scratch runs and OS / Python droppings
+runs/
+.DS_Store
+__pycache__/
+*.pyc
