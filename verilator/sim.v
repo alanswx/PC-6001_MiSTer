@@ -13,6 +13,8 @@ module top #(
    input         tape_turbo,
    input         tape_overlay,
    input         tape_rewind,
+   input         composite,        // the picture through rtl/pc6001_composite.sv
+   input   [2:0] comp_bw,          // bw_tv (rtl/pc6001_composite.sv)
 
    output [7:0]  VGA_R /*verilator public_flat*/,
    output [7:0]  VGA_G /*verilator public_flat*/,
@@ -87,6 +89,8 @@ assign AUDIO_L = audio;
 assign AUDIO_R = audio;
 
 wire [7:0]  R, G, B;
+wire        rgb_pix, HSync, VSync, HBlank, VBlank, mono;
+wire  [4:0] cidx;
 wire        tape_turbo_on;
 wire [43:0] tape_status_word;
 wire  [1:0] tape_hint;
@@ -111,10 +115,10 @@ pc6001 #(.TURBO(TURBO)) pc6001
    .ioctl_addr(ioctl_addr),
    .ioctl_dout(ioctl_dout),
 
-   .ce_pix(ce_pix),
+   .ce_pix(rgb_pix),
    .R(R), .G(G), .B(B),
-   .HSync(VGA_HS), .VSync(VGA_VS),
-   .HBlank(VGA_HB), .VBlank(VGA_VB),
+   .HSync(HSync), .VSync(VSync),
+   .HBlank(HBlank), .VBlank(VBlank), .mono(mono), .cidx(cidx),
 
    .audio(audio),
    .tape_motor(tape_motor),
@@ -149,12 +153,27 @@ tape_status tape_status
    .status(tape_status_word), .req(tape_status_req), .ack(tape_status_ack)
 );
 
+wire       c_pix, c_hs, c_vs, c_hb, c_vb;
+wire [7:0] c_r, c_g, c_b;
+pc6001_composite pc6001_composite
+(
+   .clk(clk_sys), .reset(reset), .mono(mono), .bw_tv(comp_bw),
+   .cidx(cidx), .hs_in(HSync), .vs_in(VSync), .hb_in(HBlank), .vb_in(VBlank),
+   .ce_pix(c_pix), .r(c_r), .g(c_g), .b(c_b), .hs(c_hs), .vs(c_vs), .hb(c_hb), .vb(c_vb)
+);
+assign ce_pix = composite ? c_pix : rgb_pix;
+assign VGA_HS = composite ? c_hs : HSync;
+assign VGA_VS = composite ? c_vs : VSync;
+assign VGA_HB = composite ? c_hb : HBlank;
+assign VGA_VB = composite ? c_vb : VBlank;
+wire [23:0] video = composite ? {c_r, c_g, c_b} : {R, G, B};
+
 wire [23:0] cursor_rgb;
 touch_cursor touch_cursor_i
 (
    .clk(clk_sys), .ce_pix(ce_pix), .hblank(VGA_HB), .vblank(VGA_VB), .enable(touch_en),
    .x(tp_x), .y(tp_y), .pen(tp_pen),
-   .rgb_in({R, G, B}), .rgb_out(cursor_rgb)
+   .rgb_in(video), .rgb_out(cursor_rgb)
 );
 
 tape_overlay #(.FACTOR(4'(TURBO))) tape_overlay_i

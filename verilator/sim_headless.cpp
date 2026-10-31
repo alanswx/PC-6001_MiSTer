@@ -57,6 +57,7 @@ struct Options {
     std::string disk_rom;                 // DIR/DISK.ROM from --rom-dir: the PC-6031's firmware, at 5000h of boot.rom
     std::string disk_file;                // --disk FILE: a .d88 mounted as S0
     std::string disk_out;                 // --disk-out FILE: the image as the drive left it, written at the end
+    int         composite = -1;               // --composite N: OSD Video = Composite, B/W graphics on TV = N
     bool        kbd_us = false;               // --kbd-us: OSD Keyboard = US (symbols); --type then types US keys
     bool        tape_turbo = false;           // --tape-turbo: OSD Tape speed 7x (the OSD default; here Normal)
     bool        tape_overlay = true;          // --no-tape-overlay: OSD Tape overlay Off
@@ -81,6 +82,8 @@ static void usage()
 "  --rom-dir DIR          DIR/BASICROM.60 and DIR/CGROM60.60 (default ../rom); --basic FILE / --cgrom FILE\n"
 "  --ram16k               16 KB RAM (C000-FFFF) instead of 32 KB\n"
 "  --cart FILE            load a cartridge ROM (OSD Cartridge); BASIC boots it\n"
+"  --composite N          the picture as a TV decodes it (rtl/pc6001_composite.sv); N, the black/white\n"
+"                         graphics mode on that TV: 0 red/blue, 1 blue/red, 2 pink/green, 3 green/pink, 4 grey\n"
 "  --kbd-us               OSD Keyboard = US: symbols as on a US keyboard (--type uses US keys)\n"
 "  --disk FILE            mount a .d88 (OSD Disk); the PC-6031 unit is there when DIR/DISK.ROM is (--no-disk-unit:\n"
 "                         leave it out); --disk-out FILE writes the image as the drive left it\n"
@@ -165,6 +168,7 @@ static bool parse_args(int argc, char **argv, Options &o)
         else if (a == "--cart") o.cart_file = next();
         else if (a == "--tape-turbo" || a == "--tape-fast") o.tape_turbo = true;
         else if (a == "--kbd-us") o.kbd_us = true;
+        else if (a == "--composite") o.composite = parse_num(next()) % 5;
         else if (a == "--no-tape-overlay") o.tape_overlay = false;
         else if (a == "--reset-at") o.resets.insert(parse_num(next()));
         else if (a == "--touch") {
@@ -581,6 +585,8 @@ int Sim::run()
     top->ram16k = opt.ram16k;
     top->tape_turbo = opt.tape_turbo;
     top->kbd_us = opt.kbd_us;
+    top->composite = opt.composite >= 0;
+    top->comp_bw = opt.composite > 0 ? opt.composite : 0;
     top->tape_overlay = opt.tape_overlay;
     top->tape_rewind = 0;
     top->reset = 1;

@@ -26,7 +26,6 @@ module pc6001_vdg
 
 	input      [15:0] vram_base,     // C000h/E000h/8000h/A000h
 	input             disp_on,       // 8255 port C bit 1
-	input             artifact,      // mode 4 colour set 2: NTSC artifact colours (not yet)
 
 	output reg [15:0] vaddr,         // combinational         // to the RAM's video port
 	input       [7:0] vdata,         // one clk after vaddr
@@ -42,7 +41,10 @@ module pc6001_vdg
 	output reg        HSync,
 	output reg        VSync,
 	output reg        HBlank,
-	output reg        VBlank
+	output reg        VBlank,
+	output reg        mono,          // resolution graphics, colour set 2 (black/white): the PC-6001 sends no colour
+	                                 // burst then (rtl/pc6001_composite.sv)
+	output reg  [4:0] cidx           // the dot's colour code, for the composite encoder
 );
 
 localparam H_TOTAL   = 455;
@@ -266,6 +268,8 @@ always @(posedge clk) begin
 		VBlank <= v >= V_VIS;
 		HSync  <= h >= HS_START && h < HS_END;
 		VSync  <= v >= VS_START && v < VS_END;
+		mono   <= ag && gm[0] && css_g;
+		cidx   <= color;
 	end
 end
 

@@ -61,6 +61,8 @@ module pc6001 #(
 	output            VSync,
 	output            HBlank,
 	output            VBlank,
+	output            mono,          // no colour burst (rtl/pc6001_vdg.sv)
+	output      [4:0] cidx,          // the dot's colour code
 
 	output     [15:0] audio,
 
@@ -597,7 +599,6 @@ pc6001_vdg vdg
 	.ph(ph),
 	.vram_base(vram_base),
 	.disp_on(crt_on),
-	.artifact(1'b0),
 	.vaddr(vaddr),
 	.vdata(vram_q),
 	.cg_addr(cg_addr),
@@ -605,7 +606,9 @@ pc6001_vdg vdg
 	.busrq(busrq),
 	.R(R), .G(G), .B(B),
 	.HSync(HSync), .VSync(VSync),
-	.HBlank(HBlank), .VBlank(VBlank)
+	.HBlank(HBlank), .VBlank(VBlank),
+	.mono(mono),
+	.cidx(cidx)
 );
 
 endmodule

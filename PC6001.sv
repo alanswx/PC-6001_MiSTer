@@ -55,9 +55,11 @@ assign VIDEO_ARY = (!ar) ? 12'd3 : 12'd0;
 
 // The OSD follows the computer-core OSD and tape standards: media on the top page (an MGL can only name rows
 // there), then the Machine, Video and Input pages. Settings take effect at the next reset (cfg) and "Changes
-// pending" shows until then; Tape speed, Tape overlay and Swap Alt/Win keys act at once.
+// pending" shows until then; Tape speed, Tape overlay, Swap Alt/Win keys, Video and B/W colours
+// act at once.
 // Status bits: 0 reset, 1 memory, 2 unused (old Fast tape), 3 rewind tape, 4 tape speed, 5 tape overlay,
-// 6 swap Alt/Win keys, 7 remove cartridge, 8 keyboard, 9 touch panel, 121-122 aspect ratio.
+// 6 swap Alt/Win keys, 7 remove cartridge, 8 keyboard, 9 touch panel, 10 video, 11-13 B/W colours (the black/white
+// graphics mode on a TV), 121-122 aspect ratio.
 `include "build_id.v"
 // Tape turbo factor: the Z80 and the tape run TURBO times as fast while the motor relay is on (rtl/pc6001.sv)
 localparam int TURBO = 7;
@@ -88,6 +90,9 @@ localparam CONF_STR = {
 
 	"P2O[122:121],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"P2O[5],Tape overlay,On,Off;",
+	"P2-;",
+	"P2O[10],Video,RGB,Composite (TV);",
+	"P2O[13:11],B/W colours,Red/Blue,Blue/Red,Pink/Green,Green/Pink,None (grey);",
 
 	"P3O[8],Keyboard,JP (positions),US (symbols);",
 	"P3O[6],Swap Alt/Win keys,No,Yes;",
@@ -203,9 +208,10 @@ wire [15:0] audio;
 assign AUDIO_L = audio;
 assign AUDIO_R = audio;
 
-wire HBlank, HSync, VBlank, VSync;
-wire ce_pix;
-wire [7:0] R, G, B;
+wire rgb_hb, rgb_hs, rgb_vb, rgb_vs, mono;
+wire [4:0] cidx;
+wire rgb_pix;
+wire [7:0] rgb_r, rgb_g, rgb_b;
 wire        tape_motor, tape_loaded, tape_too_big, tape_turbo_on, cart_too_big;
 wire [16:0] tape_position, tape_length;
 wire  [1:0] tape_hint;
@@ -246,10 +252,12 @@ pc6001 #(.TURBO(TURBO)) pc6001
 	.ioctl_addr(ioctl_addr[24:0]),
 	.ioctl_dout(ioctl_dout),
 
-	.ce_pix(ce_pix),
-	.R(R), .G(G), .B(B),
-	.HSync(HSync), .VSync(VSync),
-	.HBlank(HBlank), .VBlank(VBlank),
+	.ce_pix(rgb_pix),
+	.R(rgb_r), .G(rgb_g), .B(rgb_b),
+	.HSync(rgb_hs), .VSync(rgb_vs),
+	.HBlank(rgb_hb), .VBlank(rgb_vb),
+	.mono(mono),
+	.cidx(cidx),
 
 	.audio(audio),
 	.tape_motor(tape_motor),
@@ -323,6 +331,33 @@ tape_status tape_status
 	.req(tape_status_req),
 	.ack(tape_status_ack)
 );
+
+// OSD Video: the RGB picture, or the same through an NTSC encoder and a TV's decoder (colour bleed, dot patterns
+// turned to colour)
+wire       c_pix, c_hs, c_vs, c_hb, c_vb;
+wire [7:0] c_r, c_g, c_b;
+pc6001_composite pc6001_composite
+(
+	.clk(clk_sys),
+	.reset(reset),
+	.mono(mono),
+	.bw_tv(status[13:11]),
+	.cidx(cidx),
+	.hs_in(rgb_hs), .vs_in(rgb_vs), .hb_in(rgb_hb), .vb_in(rgb_vb),
+	.ce_pix(c_pix),
+	.r(c_r), .g(c_g), .b(c_b),
+	.hs(c_hs), .vs(c_vs), .hb(c_hb), .vb(c_vb)
+);
+
+wire       composite = status[10];
+wire       ce_pix = composite ? c_pix : rgb_pix;
+wire       HBlank = composite ? c_hb : rgb_hb;
+wire       VBlank = composite ? c_vb : rgb_vb;
+wire       HSync = composite ? c_hs : rgb_hs;
+wire       VSync = composite ? c_vs : rgb_vs;
+wire [7:0] R = composite ? c_r : rgb_r;
+wire [7:0] G = composite ? c_g : rgb_g;
+wire [7:0] B = composite ? c_b : rgb_b;
 
 // the pen's place, while the touch panel is in
 wire [23:0] cursor_rgb;

@@ -17,6 +17,8 @@ set_global_assignment -name SYSTEMVERILOG_FILE rtl/tape_overlay.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/i8255_m0.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/touch_panel.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/touch_mouse.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/pc6001_composite.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/composite_decoder.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/dpram_tdp.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/d88_media.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/upd765_lite.sv

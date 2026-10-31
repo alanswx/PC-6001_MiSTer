@@ -33,6 +33,8 @@ run screen3_lines 1400 --type '155:2\n{WAIT30}10 SCREEN 3,2,2:CLS\n{WAIT20}20 LI
 run screen4_lines 1400 --type '155:2\n{WAIT30}10 SCREEN 4,2,2:CLS\n{WAIT20}20 LINE (0,0)-(127,191)\n{WAIT20}30 LINE (10,10)-(60,40),,BF\n{WAIT20}40 GOTO 40\n{WAIT20}RUN\n'
 # Keyboard = US: every US symbol the P6 has, as printed on the keys
 run kbd_us 900 --kbd-us --type '155:1\n{WAIT40}PRINT "!@#$%^&*()-_=+[]\\;:'"'"',.<>/?"\n'
+# OSD Video = Composite (rtl/pc6001_composite.sv): the boot screen through the NTSC encoder and decoder
+run composite_boot 300 --composite 0
 if [ "${TAPES:-0}" = 1 ]; then
 	run tape_lights_proto 1500 --tape "../refs/software/pc6001/cas/Lights_Out_Hiroshi_Ishioka_/Lights Out (BASIC prototype) {m1p1}.cas" \
 		--type '155:1\n{WAIT30}CLOAD\n' --type '1250:LIST\n'
@@ -56,6 +58,11 @@ if [ "${TAPES:-0}" = 1 ]; then
 	for i in $(seq 0 60); do t+=(--touch $f:$((40 + i * 3)),$((40 + i * 2)),1); f=$((f + 1)); done
 	for i in $(seq 0 50); do t+=(--touch $f:$((220 - i * 3)),160,1); f=$((f + 1)); done
 	t+=(--touch $f:70,160,0)
+	# mode 4 stripes one dot apart through the composite path: green from an even dot, brownish orange from an odd
+	# one (colour set 1); the same in colour set 2 as Red/Blue (slow: the decoder runs every clock)
+	m=(--type '155:2\n{WAIT30}10 SCREEN 4,2,2:COLOR 1,0,1:CLS\n{WAIT20}20 FOR X=0 TO 62 STEP 2:LINE(X,0)-(X,80):NEXT\n{WAIT20}30 FOR X=129 TO 191 STEP 2:LINE(X,0)-(X,80):NEXT\n{WAIT20}40 LINE(0,100)-(255,150),,BF:FOR I=1 TO 900:NEXT:COLOR 1,0,2\n{WAIT20}50 GOTO 50\n{WAIT20}RUN\n')
+	run composite_mode4 2200 --composite 0 "${m[@]}"
+	run composite_mode4_bw 2500 --composite 0 "${m[@]}"
 	run touch_draw 700 --cart "$C/_Utility_Touch_Panel_NEC_/[Utility] Touch Panel (ROM cart).bin" "${t[@]}"
 	# the same through the mouse (rtl/touch_mouse.sv): a fast drag, 60 counts a frame; the point follows on a
 	# straight line, slowly enough for the cartridge to draw all of it

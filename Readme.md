@@ -8,7 +8,7 @@ Work in progress: a MiSTer core for the NEC PC-6001 (1981), with the mkII, PC-66
 |---|---|
 | Z80 at 3.9936 MHz, waits on M1 / ROM / PSG, display bus steal (BUSRQ) | done (CSCP, PC6001VX timing) |
 | Memory: 16 KB BASIC ROM, CGROM at 6000h, 16 or 32 KB RAM (32 KB is what a PC-6006 ROM/RAM cartridge gives) | done |
-| VDG (M5C6847P-1): text, semigraphics 4/6, all 8 graphics modes, CSS, internal font | done; NTSC artifact colours in mode 4 not yet |
+| VDG (M5C6847P-1): text, semigraphics 4/6, all 8 graphics modes, CSS, internal font | done; mode 4 artifact colours through the Composite (TV) video option (below) |
 | 8255 mode 2 + sub CPU (keyboard, STICK/STRIG game keys, cassette) | high-level, after PC6001VX |
 | Timer interrupt (2.05 ms, first period half) | done |
 | AY-3-8910 (jt49), joysticks on port A | done; tone pitch matches MAME exactly (SOUND 0,254: 492 Hz); jt49's volume steps are 3 dB, MAME's flatter |
@@ -39,6 +39,8 @@ The menu follows the MiSTer computer-core OSD and tape standards:
 | Rewind tape | Machine | button |
 | Aspect ratio | Video | |
 | Tape overlay | Video | On / Off: `TAPE ▶ m:ss/ m:ss x7` and a progress bar while the tape plays; the next step while it is stopped (below) |
+| Video | Video | RGB (default): the VDG's colours, sharp; Composite (TV): the picture through an NTSC encoder and decoder, as a TV shows it (below) |
+| B/W colours | Video | Composite only: what a TV makes of mode 4's black/white set (Red/Blue, Blue/Red, Pink/Green, Green/Pink, or None: grey) |
 | Keyboard | Input | JP (default): US keys at the JIS key positions; US: the symbols printed on a US keyboard |
 | Swap Alt/Win keys | Input | Yes: the Win keys are GRAPH |
 | Port 2 | Input | joystick port 2: Joystick (default), or Touch panel (mouse): the pad the Touch Panel cartridge draws with (below) |
@@ -113,6 +115,24 @@ draw. The pad answers the way the cartridge's code asks (PSG port B bit 4 latche
 MSB first on port A bit 2, port A bit 0 is the pen). The cartridge ignores jumps of 5 steps or more between two
 samples (a real pen moves smoothly; it samples about every 6 ms while drawing), so the pen point follows the
 mouse on a straight line at 333 steps a second, and the pen goes down only once it has caught up. While the option is on, joystick 2 is not connected.
+
+## Composite video
+
+The PC-6001 was built for a TV, and its games use that: in mode 4 (SCREEN 4, 128 x 192 in four colours or
+256 x 192 in two) a pattern of dots one apart turns into colour. Video > Composite (TV) shows that.
+`rtl/pc6001_composite.sv` makes an NTSC signal from each dot as the VDG sends it (the MC6847 data sheet's luma
+levels and its two colour difference outputs, low, centred or high), at 8 samples per subcarrier cycle, and
+decodes it with Jamie Blanks' composite decoder from the NES core (`rtl/composite_decoder.sv`, MIT licence,
+only its line store changed). The subcarrier is set against the dots to give what a real PC-6001 measured at
+its video output: the two greens of the green set differ only in brightness, and stripes one dot apart are
+green from an even dot and a brownish orange from an odd one.
+
+The black/white set (`COLOR ,,2` in mode 4) has no colour burst, so a TV that follows the standard shows grey,
+which is B/W colours = None. Many TVs, and the RF output, colour it anyway, at whatever phase they lock to;
+games such as Orion and EGGY were drawn for that. The four other settings give such a burst, named (as in
+PC6001VX) by the colours of stripes from an even dot and from an odd dot. Red/Blue is the default.
+
+Known: a thin coloured fringe at the left edge of the picture.
 
 ## Simulation
 

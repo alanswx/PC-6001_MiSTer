@@ -1,4 +1,4 @@
-NEC PC-6001 for MiSTer - tester build 2026-10-30
+NEC PC-6001 for MiSTer - tester build 2026-10-31
 ================================================
 
 This is a work-in-progress core. It runs N60-BASIC, loads tapes, runs ROM
@@ -8,7 +8,7 @@ not done yet.
 Install
 -------
 Unzip this at the root of the SD card (/media/fat/). It puts:
-  _Computer/PC6001_20261030.rbf   the core
+  _Computer/PC6001_20261031.rbf   the core
   games/PC6001/boot.rom           BASICROM.60 + CGROM60.60 + DISK.ROM (22528 bytes;
                                   DISK.ROM is the disk unit's firmware)
   games/PC6001/MAME/              tapes from the MAME software list
@@ -51,6 +51,11 @@ Using it
 - Tape speed (Machine page): 7x by default while the tape plays, or Normal.
 - Tape overlay (Video page): status bar while the tape plays; while it is
   stopped, what to type next (TYPE CLOAD, then TYPE RUN) for BASIC tapes.
+- Video (Video page): RGB (sharp), or Composite (TV): the picture as a TV
+  shows it, with colour bleed and mode 4 artifact colours (fine stripes turn
+  into colour, as many games expect). B/W colours picks what a TV makes of
+  mode 4's black/white set: Red/Blue (default), Blue/Red, Pink/Green,
+  Green/Pink, or None (grey, as on a TV that follows the standard).
 - Memory (32/16 KB) and Aspect ratio need "Apply and reset".
 
 Keyboard
@@ -80,6 +85,7 @@ What to test / report
 - Which tapes load and run, at 7x and at Normal tape speed. Name the file.
 - Sound (PSG): does it sound right compared to an emulator or real hardware?
 - Picture: wrong colours, glitches, sync problems on your display.
+- Composite (TV): do mode 4 games look as you remember them on a TV?
 - Joystick games (STICK / STRIG).
 - Cartridges: does each one start and play?
 - Touch Panel with a mouse: do strokes follow the pen?
@@ -89,7 +95,7 @@ Please include the tape name, the OSD settings, and a photo or screenshot.
 
 Known issues
 ------------
-- Mode 4 NTSC artifact colours are not emulated.
+- Composite video: a thin coloured fringe at the left edge.
 - No CSAVE, no WAV tapes. A .p6t tape plays without its gaps.
 - Disk: one drive, 1D images only; "SYS" boot disks do not start yet.
 - Only plain ROM cartridges (up to 16 KB); no RAM or bank-switched ones.

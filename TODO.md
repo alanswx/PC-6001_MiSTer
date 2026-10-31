@@ -10,7 +10,7 @@
   PC-6006 ROM/RAM cartridge is the 32 KB setting; EXTROM.60 is only CSCP's name for the cartridge file.)
 - Touch panel: try a drag on a MiSTer with a real mouse (the KVM's button does not stay down); check the pad's
   real range (0-255 is assumed).
-- Mode 4 NTSC artifact colours (PC6001VX COL60_CG "にじみ" tables).
+- Composite video: a thin coloured fringe at the left edge; compare B/W colours with photos of real TVs.
 - PSG: pitch matches MAME; volume 15 -> 10 is 5.7x in jt49, 3.8x in MAME. Check against a real machine's
   recording before changing. Noise and envelopes not compared yet. (Joystick bits and the port B bit 6 select
   match PC6001VX; not tried with a real stick on a MiSTer.)
