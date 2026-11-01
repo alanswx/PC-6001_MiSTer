@@ -29,7 +29,7 @@ assign USER_OUT = '1;
 assign {UART_RTS, UART_TXD, UART_DTR} = 0;
 assign {SD_SCK, SD_MOSI, SD_CS} = 'Z;
 assign {SDRAM_DQ, SDRAM_A, SDRAM_BA, SDRAM_CLK, SDRAM_CKE, SDRAM_DQML, SDRAM_DQMH, SDRAM_nWE, SDRAM_nCAS, SDRAM_nRAS, SDRAM_nCS} = 'Z;
-assign {DDRAM_CLK, DDRAM_BURSTCNT, DDRAM_ADDR, DDRAM_DIN, DDRAM_BE, DDRAM_RD, DDRAM_WE} = '0;
+assign DDRAM_CLK = clk_sys;   // the disk image (rtl/d88_media.sv)
 
 assign VGA_SL = 0;
 assign VGA_F1 = 0;
@@ -59,7 +59,7 @@ assign VIDEO_ARY = (!ar) ? 12'd3 : 12'd0;
 // act at once.
 // Status bits: 0 reset, 1 memory, 2 unused (old Fast tape), 3 rewind tape, 4 tape speed, 5 tape overlay,
 // 6 swap Alt/Win keys, 7 remove cartridge, 8 keyboard, 9 touch panel, 10 video, 11-13 B/W colours (the black/white
-// graphics mode on a TV), 121-122 aspect ratio.
+// graphics mode on a TV), 14 model, 121-122 aspect ratio.
 `include "build_id.v"
 // Tape turbo factor: the Z80 and the tape run TURBO times as fast while the motor relay is on (rtl/pc6001.sv)
 localparam int TURBO = 7;
@@ -83,6 +83,8 @@ localparam CONF_STR = {
 	"h0-,Changes pending;",
 	"R[0],Apply and reset;",
 
+	"P1O[14],Model,PC-6001,PC-6001mkII;",
+	"P1-;",
 	"P1O[4],Tape speed,", 8'h30 + 8'(TURBO), "x,Normal;",
 	"P1-;",
 	"P1T[7],Remove cartridge;",
@@ -98,7 +100,7 @@ localparam CONF_STR = {
 	"P3O[6],Swap Alt/Win keys,No,Yes;",
 	"P3O[9],Port 2,Joystick,Touch panel (mouse);",
 
-	"I,Tape ready (rewound),Tape too large (64 KB max),Cartridge too large (16 KB max),Disk too large (176 KB max),No disk unit (boot.rom without DISK.ROM);",
+	"I,Tape ready (rewound),Tape too large (64 KB max),Cartridge too large (16 KB max),Disk too large (512 KB max),No disk unit (boot.rom without DISK.ROM);",
 	"v,0;",
 	"V,v",`BUILD_DATE,
 	";J1,Trigger 1,Trigger 2;",
@@ -185,7 +187,7 @@ wire reset = RESET | status[0] | buttons[1] | status[7] |
 // Load ROM, a core reload)
 reg [127:0] cfg;
 always @(posedge clk_sys) if (reset) cfg <= status;
-wire osd_pending = {status[1], status[122:121]} != {cfg[1], cfg[122:121]};
+wire osd_pending = {status[14], status[1], status[122:121]} != {cfg[14], cfg[1], cfg[122:121]};
 
 // Swap Alt/Win keys (acts at once): the Win keys become GRAPH and the Alt keys nothing
 wire [8:0] key_code = ps2_key_raw[8:0];
@@ -232,6 +234,7 @@ pc6001 #(.TURBO(TURBO)) pc6001
 (
 	.clk_sys(clk_sys),
 	.reset(reset),
+	.mk2(cfg[14]),         // its ROMs are boot1.rom
 	.ram16k(cfg[1]),
 	.tape_turbo(~status[4]),
 	.tape_rewind(status[3]),
@@ -279,6 +282,15 @@ pc6001 #(.TURBO(TURBO)) pc6001
 	.sd_buff_dout(sd_buff_dout),
 	.sd_buff_din(sd_buff_din),
 	.sd_buff_wr(sd_buff_wr),
+	.ddr_busy(DDRAM_BUSY),
+	.ddr_burstcnt(DDRAM_BURSTCNT),
+	.ddr_addr(DDRAM_ADDR),
+	.ddr_dout(DDRAM_DOUT),
+	.ddr_dout_ready(DDRAM_DOUT_READY),
+	.ddr_rd(DDRAM_RD),
+	.ddr_din(DDRAM_DIN),
+	.ddr_be(DDRAM_BE),
+	.ddr_we(DDRAM_WE),
 	.disk_ready(disk_ready),
 	.disk_too_big(disk_too_big),
 	.disk_motor(disk_motor),
@@ -349,7 +361,7 @@ pc6001_composite pc6001_composite
 	.hs(c_hs), .vs(c_vs), .hb(c_hb), .vb(c_vb)
 );
 
-wire       composite = status[10];
+wire       composite = status[10] & ~cfg[14];   // the PC-6001's colours only, for now
 wire       ce_pix = composite ? c_pix : rgb_pix;
 wire       HBlank = composite ? c_hb : rgb_hb;
 wire       VBlank = composite ? c_vb : rgb_vb;

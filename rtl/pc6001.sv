@@ -33,7 +33,8 @@ module pc6001 #(
 (
 	input             clk_sys,
 	input             reset,
-	input             ram16k,          // OSD: 16 KB RAM instead of 32 KB
+	input             mk2,             // OSD Model: the PC-6001mkII (boot1.rom), taken at reset
+	input             ram16k,          // OSD: 16 KB RAM instead of 32 KB (PC-6001)
 	input             tape_turbo,      // OSD: TURBO x while the motor relay is on
 	input             tape_rewind,
 	input             cart_eject,
@@ -87,6 +88,16 @@ module pc6001 #(
 	input       [7:0] sd_buff_dout,
 	output      [7:0] sd_buff_din,
 	input             sd_buff_wr,
+	// DDR3, the disk image (rtl/d88_media.sv)
+	input             ddr_busy,
+	output      [7:0] ddr_burstcnt,
+	output     [28:0] ddr_addr,
+	input      [63:0] ddr_dout,
+	input             ddr_dout_ready,
+	output            ddr_rd,
+	output     [63:0] ddr_din,
+	output      [7:0] ddr_be,
+	output            ddr_we,
 	output            disk_ready,
 	output            disk_too_big,
 	output            disk_motor,
@@ -210,25 +221,12 @@ assign dbg_io_rd   = io_rd;
 assign dbg_io_port = A[7:0];
 assign dbg_io_data = io_wr ? cpu_dout : io_dout;
 
-// Waits: one Z80 state on each M1, each memory access below 8000h and each PSG access
-reg waited;
-wire want_wait = (~mreq_n & rfsh_n & (~m1_n | ~A[15])) | (io_cyc & A[7:4] == 4'hA);
-always @(posedge clk_sys) begin
-	if (cpu_reset) begin
-		waited <= 0;
-	end
-	else if (ce_cpu) begin
-		if (want_wait && !waited) waited <= 1'b1;
-		else if (!want_wait) waited <= 1'b0;
-	end
-end
-always @(*) wait_n = ~(want_wait & ~waited);
 
 //----------------------------------------------------------------------------
 // Memory
 //----------------------------------------------------------------------------
 
-wire       rom_wr = ioctl_download && ioctl_wr && ioctl_index[5:0] == 6'd0;
+wire       rom_wr = ioctl_download && ioctl_wr && ioctl_index == 8'h00;   // boot0.rom (boot1.rom, the mkII's, is index 40h)
 
 // BASIC ROM
 reg  [7:0] basic_rom[0:16383];
@@ -239,36 +237,50 @@ always @(posedge clk_sys) begin
 end
 
 // CGROM: the CPU at 6000h and the VDG
-wire [11:0] cg_addr;
+wire [13:0] cg_addr;
 reg   [7:0] cg_rom[0:4095];
 reg   [7:0] cg_q, cg_cpu_q;
 always @(posedge clk_sys) begin
 	if (rom_wr && ioctl_addr[24:12] == 13'h004) cg_rom[ioctl_addr[11:0]] <= ioctl_dout;
-	cg_q <= cg_rom[cg_addr];
+	cg_q <= cg_rom[cg_addr[11:0]];
 end
 always @(posedge clk_sys) cg_cpu_q <= cg_rom[A[11:0]];
 
-// RAM 32 KB at 8000h: port A the CPU, port B the VDG
+// The mkII's ROMs (boot1.rom, in MAME's order): BASIC 00000h (32 KB), voice 08000h (16 KB), CGROM60 0C000h
+// and CGROM60m 0E000h (8 KB each), kanji 10000h (32 KB). Port A the download and the CPU, port B the VDG's font.
+wire        rom1_wr = ioctl_download && ioctl_wr && ioctl_index == 8'h40;
+reg   [7:0] rom62[0:98303];
+reg   [7:0] rom62_q, cg62_q;
+reg  [16:0] rom62_cpu;
+wire [16:0] rom62_a = rom1_wr ? ioctl_addr[16:0] : rom62_cpu;
+always @(posedge clk_sys) begin
+	if (rom1_wr && ioctl_addr[24:17] == 0 && ioctl_addr[16:15] != 2'b11) rom62[rom62_a] <= ioctl_dout;
+	rom62_q <= rom62[rom62_a];
+end
+always @(posedge clk_sys) cg62_q <= rom62[{3'b011, cg_addr}];
+
+// RAM 64 KB: port A the CPU, port B the VDG. The PC-6001 has 32 KB at 8000h (16 KB at C000h).
 wire [15:0] vaddr;
-reg   [7:0] ram[0:32767];
+reg   [7:0] ram[0:65535];
 reg   [7:0] ram_q, vram_q;
 wire        ram_sel = A[15] & ~(ram16k & ~A[14]);
-wire        ram_we  = ~mreq_n & ~wr_n & ram_sel & ce_cpu;
+wire        ram_we  = ~mreq_n & ~wr_n & (mk2 ? wr_int : ram_sel) & ce_cpu;
 always @(posedge clk_sys) begin
-	if (ram_we) ram[A[14:0]] <= cpu_dout;
-	ram_q <= ram[A[14:0]];
+	if (ram_we) ram[A] <= cpu_dout;
+	ram_q <= ram[A];
 end
-always @(posedge clk_sys) vram_q <= ram[vaddr[14:0]];
+always @(posedge clk_sys) vram_q <= ram[vaddr];
 
-// Cartridge ROM at 4000h, loaded through ioctl index 2
+// Cartridge ROM at 4000h, loaded through ioctl index 2 (the mkII: EXTROM, at whichever block F0/F1 map it)
 wire       cart_wr = ioctl_download && ioctl_wr && ioctl_index[5:0] == 6'd2;
 reg  [7:0] cart_rom[0:16383];
 reg  [7:0] cart_q;
 reg [14:0] cart_len = 0;
 reg        cart_big = 0, cart_dl = 0;
+wire [13:0] cart_a;
 always @(posedge clk_sys) begin
 	if (cart_wr && ioctl_addr[24:14] == 0) cart_rom[ioctl_addr[13:0]] <= ioctl_dout;
-	cart_q <= cart_rom[A[13:0]];
+	cart_q <= cart_rom[cart_a];
 end
 always @(posedge clk_sys) begin
 	cart_dl <= ioctl_download && ioctl_index[5:0] == 6'd2;
@@ -282,16 +294,90 @@ end
 wire cart_in = cart_len != 0;
 assign cart_too_big = cart_big;
 
-wire cg_sel;
+//----------------------------------------------------------------------------
+// The mkII's memory map (PC6001VX memory.cpp MEM62)
+//----------------------------------------------------------------------------
+// F0: what 0000h-3FFFh (low nibble) and 4000h-7FFFh (high) read; F1: 8000h-BFFFh and C000h-FFFFh. Each value
+// picks the source of the two 8 KB blocks. F2: what each 16 KB writes to, 2 bits each (1 or 3: the internal
+// RAM). F8: the CG ROM in place of one 8 KB block while port C bit 2 (cg_sel) allows it: b6 on, b5-3 address
+// bits to ignore, b2-0 A15-A13. C1 b1 picks the font there: 1 CGROM60, 0 CGROM60m. C2: b0 1 the kanji ROM,
+// 0 the voice ROM, where a block reads "kanji"; b1 its left / right 16 KB. C3: which C2 bits take writes.
+
+reg [7:0] rf0, rf1, rf2, f3, f4, f5, f6, f8;
+wire      cg_sel;
+reg [7:0] c0, c1;
+reg       kj_rom, kj_lr;
+reg [1:0] c2acc;
+
+localparam S_NONE = 3'd0, S_MAIN = 3'd1, S_KNJ = 3'd2, S_EXT0 = 3'd3, S_EXT1 = 3'd4, S_RAM = 3'd5;
+wire [3:0] nib = A[15] ? (A[14] ? rf1[7:4] : rf1[3:0]) : (A[14] ? rf0[7:4] : rf0[3:0]);
+wire       hb  = A[13];   // the second 8 KB of the 16 KB
+reg  [2:0] src;
+always @(*) begin
+	case (nib)
+	4'h1: src = S_MAIN;
+	4'h2: src = S_KNJ;
+	4'h3: src = S_EXT1;
+	4'h4: src = S_EXT0;
+	4'h5: src = hb ? S_MAIN : S_KNJ;
+	4'h6: src = hb ? S_KNJ  : S_MAIN;
+	4'h7: src = hb ? S_EXT1 : S_EXT0;
+	4'h8: src = hb ? S_EXT0 : S_EXT1;
+	4'h9: src = hb ? S_MAIN : S_EXT1;
+	4'ha: src = hb ? S_EXT1 : S_MAIN;
+	4'hb: src = hb ? S_KNJ  : S_EXT0;
+	4'hc: src = hb ? S_EXT0 : S_KNJ;
+	4'hd: src = S_RAM;
+	default: src = S_NONE;   // 0, F; E is RAM in a cartridge
+	endcase
+end
+wire src_ram = src == S_RAM;
+
+wire [1:0] wsel = rf2[{A[15:14], 1'b0} +: 2];
+wire       wr_int = wsel[0];
+wire       cg_on = cg_sel && f8[6] && ((A[15:13] | f8[5:3]) == (f8[2:0] | f8[5:3]));
+
+always @(*) begin
+	if (cg_on) rom62_cpu = {3'b011, ~c1[1], A[12:0]};
+	else if (src == S_KNJ) rom62_cpu = kj_rom ? {2'b10, kj_lr, A[13:0]} : {3'b010, A[13:0]};
+	else rom62_cpu = {2'b00, A[14:0]};
+end
+assign cart_a = mk2 ? {src == S_EXT1, A[12:0]} : A[13:0];
+
 reg [7:0] mem_dout;
 always @(*) begin
-	if (!A[15]) begin
+	if (mk2) begin
+		if (cg_on) mem_dout = rom62_q;
+		else case (src)
+			S_MAIN, S_KNJ: mem_dout = rom62_q;
+			S_EXT0, S_EXT1: mem_dout = {1'b0, cart_a} < cart_len ? cart_q : 8'hff;
+			S_RAM: mem_dout = ram_q;
+			default: mem_dout = 8'hff;
+		endcase
+	end
+	else if (!A[15]) begin
 		if (!A[14]) mem_dout = basic_q;
 		else if (A[13] && cg_sel && (!A[12] || !cart_in)) mem_dout = cg_cpu_q;
 		else mem_dout = {1'b0, A[13:0]} < cart_len ? cart_q : 8'hff;
 	end
 	else mem_dout = ram_sel ? ram_q : 8'hff;
 end
+
+// Waits: one Z80 state on each M1, each memory access below 8000h and each PSG access. The mkII: port F3 b7 on
+// M1, b6 on ROM, b5 on RAM (PC6001VX MEM62::SetWait)
+reg waited;
+wire mem_wait = mk2 ? (~m1_n & f3[7]) | (~wr_n | src_ram ? f3[5] : f3[6]) : ~m1_n | ~A[15];
+wire want_wait = (~mreq_n & rfsh_n & mem_wait) | (io_cyc & A[7:4] == 4'hA);
+always @(posedge clk_sys) begin
+	if (cpu_reset) begin
+		waited <= 0;
+	end
+	else if (ce_cpu) begin
+		if (want_wait && !waited) waited <= 1'b1;
+		else if (!want_wait) waited <= 1'b0;
+	end
+end
+always @(*) wait_n = ~(want_wait & ~waited);
 
 //----------------------------------------------------------------------------
 // I/O
@@ -300,6 +386,39 @@ end
 wire       sel_ppi = A[7:4] == 4'h9;
 wire       sel_psg = A[7:4] == 4'hA;
 wire       sel_b0  = A[7:4] == 4'hB;
+wire       sel_c   = mk2 && A[7:2] == 6'b1100_00;   // C0-C3
+wire       sel_f   = mk2 && A[7:4] == 4'hF;         // F0-F8
+wire       sel_e   = mk2 && A[7:2] == 6'b1110_00;   // E0-E3: the uPD7752 (not there yet: idle)
+
+always @(posedge clk_sys) begin
+	if (cpu_reset) begin
+		rf0 <= 8'h71; rf1 <= 8'hdd; rf2 <= 8'h50;    // BASIC, the cartridge, RAM above 8000h (PC6001VX INIT_RF)
+		f3 <= 8'h00; f4 <= 8'h00; f5 <= 8'h00; f6 <= 8'h03;
+		f8 <= 8'h43;                                // the CG ROM at 6000h
+		c0 <= 8'h00; c1 <= 8'h06;
+		kj_rom <= 1'b1; kj_lr <= 1'b1; c2acc <= 2'b11;
+	end
+	else if (io_wr && sel_f) case (A[3:0])
+		4'h0: rf0 <= cpu_dout;
+		4'h1: rf1 <= cpu_dout;
+		4'h2: rf2 <= cpu_dout;
+		4'h3: f3 <= cpu_dout;
+		4'h4: f4 <= cpu_dout;
+		4'h5: f5 <= cpu_dout;
+		4'h6: f6 <= cpu_dout;
+		4'h8: f8 <= cpu_dout;
+		default: ;
+	endcase
+	else if (io_wr && sel_c) case (A[1:0])
+		2'd0: c0 <= cpu_dout;
+		2'd1: c1 <= cpu_dout;
+		2'd2: begin
+			if (c2acc[1]) kj_lr <= cpu_dout[1];
+			if (c2acc[0]) kj_rom <= cpu_dout[0];
+		end
+		default: c2acc <= cpu_dout[1:0];
+	endcase
+end
 
 reg  [7:0] sys_latch;
 always @(posedge clk_sys) begin
@@ -523,6 +642,15 @@ pc6031 fdd
 	.sd_buff_dout(sd_buff_dout),
 	.sd_buff_din(sd_buff_din),
 	.sd_buff_wr(sd_buff_wr),
+	.ddr_busy(ddr_busy),
+	.ddr_burstcnt(ddr_burstcnt),
+	.ddr_addr(ddr_addr),
+	.ddr_dout(ddr_dout),
+	.ddr_dout_ready(ddr_dout_ready),
+	.ddr_rd(ddr_rd),
+	.ddr_din(ddr_din),
+	.ddr_be(ddr_be),
+	.ddr_we(ddr_we),
 	.disk_ready(disk_ready),
 	.disk_too_big(disk_too_big),
 	.motor(disk_motor)
@@ -530,7 +658,19 @@ pc6031 fdd
 
 reg [7:0] io_dout;
 always @(*) begin
-	if (sel_ppi) io_dout = ppi_dout;
+	if (sel_f) case (A[3:0])
+		4'h0: io_dout = rf0;
+		4'h1: io_dout = rf1;
+		4'h2: io_dout = rf2;
+		4'h3: io_dout = f3;
+		4'h4: io_dout = f4;
+		4'h5: io_dout = f5;
+		4'h6: io_dout = f6;
+		default: io_dout = 8'hff;
+	endcase
+	else if (sel_c && A[1:0] == 2'd2) io_dout = {6'b111111, kj_lr, kj_rom};
+	else if (sel_e) io_dout = 8'h00;
+	else if (sel_ppi) io_dout = ppi_dout;
 	else if (sel_fdd) io_dout = fdd_dout;
 	else if (sel_psg && A[1:0] == 2'd2) io_dout = psg_dout;
 	else io_dout = 8'hff;
@@ -540,26 +680,27 @@ end
 // Timer and interrupts
 //----------------------------------------------------------------------------
 
-localparam TIMER_PERIOD = 8192;   // Z80 states: 2048 x (3 + 1)
+localparam TIMER_PERIOD = 8192;   // Z80 states: 2048 x (3 + 1); the mkII 2048 x (F6 + 1)
+wire [19:0] timer_period = mk2 ? {f6 + 9'd1, 11'd0} : 20'(TIMER_PERIOD);
 
-reg [12:0] timer_cnt;
+reg [19:0] timer_cnt;
 reg        timer_req;
 reg        timer_off_d;
 reg        int_timer;     // the acknowledge goes to the timer
 
 always @(posedge clk_sys) begin
 	if (cpu_reset) begin
-		timer_cnt <= TIMER_PERIOD - 1;
+		timer_cnt <= 20'(TIMER_PERIOD - 1);
 		timer_req <= 0;
 		timer_off_d <= 1;
 	end
 	else begin
 		timer_off_d <= timer_off;
-		if (timer_off_d && !timer_off) timer_cnt <= TIMER_PERIOD / 2 - 1;   // the first period is half
+		if (timer_off_d && !timer_off) timer_cnt <= (timer_period >> 1) - 1'd1;   // the first period is half
 		else if (ce_cpu) begin
 			if (timer_cnt == 0) begin
-				timer_cnt <= TIMER_PERIOD - 1;
-				timer_req <= 1'b1;
+				timer_cnt <= timer_period - 1'd1;
+				if (!(mk2 && f3[2])) timer_req <= 1'b1;   // the mkII drops it while F3 b2 masks the timer
 			end
 			else timer_cnt <= timer_cnt - 1'd1;
 		end
@@ -567,8 +708,11 @@ always @(posedge clk_sys) begin
 	end
 end
 
-wire timer_pend = timer_req & ~timer_off;
-assign int_n = ~(timer_pend | sub_irq);
+// the mkII: F3 b0 masks the sub CPU, b2 the timer; b3 sends F4 as the sub CPU's vector (PC6001VX IRQ62)
+wire timer_pend = timer_req & ~timer_off & ~(mk2 & f3[2]);
+wire sub_pend   = sub_irq & ~(mk2 & f3[0]);
+wire [7:0] sub_vec = mk2 && f3[3] ? f4 : sub_vector;
+assign int_n = ~(timer_pend | sub_pend);
 
 // The vector is decided at the start of the acknowledge cycle and held for it.
 reg [7:0] int_vec;
@@ -576,13 +720,13 @@ always @(posedge clk_sys) begin
 	sub_ack <= 1'b0;
 	if (inta_s) begin
 		int_timer <= timer_pend;
-		int_vec <= timer_pend ? 8'h06 : sub_vector;
+		int_vec <= timer_pend ? 8'h06 : sub_vec;
 		if (!timer_pend) sub_ack <= 1'b1;
 	end
 end
 
 always @(*) begin
-	if (inta) cpu_din = inta_d ? int_vec : (timer_pend ? 8'h06 : sub_vector);
+	if (inta) cpu_din = inta_d ? int_vec : (timer_pend ? 8'h06 : sub_vec);
 	else if (~mreq_n) cpu_din = mem_dout;
 	else cpu_din = io_dout;
 end
@@ -599,10 +743,14 @@ pc6001_vdg vdg
 	.ph(ph),
 	.vram_base(vram_base),
 	.disp_on(crt_on),
+	.mk2(mk2),
+	.page(sys_latch[2:1]),
+	.crt_mode(c1[3:1]),
+	.css(c0[2:0]),
 	.vaddr(vaddr),
 	.vdata(vram_q),
 	.cg_addr(cg_addr),
-	.cg_data(cg_q),
+	.cg_data(mk2 ? cg62_q : cg_q),
 	.busrq(busrq),
 	.R(R), .G(G), .B(B),
 	.HSync(HSync), .VSync(VSync),

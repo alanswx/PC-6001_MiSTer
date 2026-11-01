@@ -10,6 +10,7 @@ module top #(
    input         clk_sys /*verilator public_flat*/,
    input         reset /*verilator public_flat*/,
    input         ram16k,
+   input         mk2,              // OSD Model: PC-6001mkII
    input         tape_turbo,
    input         tape_overlay,
    input         tape_rewind,
@@ -100,6 +101,7 @@ pc6001 #(.TURBO(TURBO)) pc6001
 (
    .clk_sys(clk_sys),
    .reset(reset),
+   .mk2(mk2),
    .ram16k(ram16k),
    .tape_turbo(tape_turbo),
    .tape_rewind(tape_rewind),
@@ -133,6 +135,8 @@ pc6001 #(.TURBO(TURBO)) pc6001
    .img_mounted(img_mounted), .img_readonly(img_readonly), .img_size(img_size),
    .sd_lba(sd_lba), .sd_rd(sd_rd), .sd_wr(sd_wr), .sd_ack(sd_ack),
    .sd_buff_addr(sd_buff_addr), .sd_buff_dout(sd_buff_dout), .sd_buff_din(sd_buff_din), .sd_buff_wr(sd_buff_wr),
+   .ddr_busy(ddr_busy), .ddr_burstcnt(), .ddr_addr(ddr_addr), .ddr_dout(ddr_dout),
+   .ddr_dout_ready(ddr_dout_ready), .ddr_rd(ddr_rd), .ddr_din(ddr_din), .ddr_be(ddr_be), .ddr_we(ddr_we),
    .disk_ready(disk_ready), .disk_too_big(), .disk_motor(disk_motor), .disk_unit(),
 
    .cpu_addr(cpu_addr),
@@ -182,5 +186,35 @@ tape_overlay #(.FACTOR(4'(TURBO))) tape_overlay_i
    .status(tape_status_word), .req(tape_status_req), .ack(tape_status_ack),
    .rgb_in(cursor_rgb), .rgb_out({VGA_R, VGA_G, VGA_B})
 );
+
+
+// DDR3 (sys/ddr_svc's side of emu): 512 KB at the disk image's base, one access at a time, busy now and then and
+// reads coming back some clocks later, as the real one
+wire        ddr_rd, ddr_we;
+wire [28:0] ddr_addr;
+wire [63:0] ddr_din;
+wire  [7:0] ddr_be;
+reg  [63:0] ddr_dout;
+reg         ddr_dout_ready = 0;
+reg  [63:0] ddr_mem[0:65535];
+reg   [3:0] ddr_lat = 0;
+reg  [15:0] ddr_ra;
+reg   [7:0] ddr_lfsr = 8'h5a;
+wire        ddr_busy = ddr_lfsr[0] & ddr_lfsr[3] | ddr_lat != 0;
+always @(posedge clk_sys) begin
+   ddr_lfsr <= {ddr_lfsr[6:0], ddr_lfsr[7] ^ ddr_lfsr[5] ^ ddr_lfsr[4] ^ ddr_lfsr[3]};
+   ddr_dout_ready <= 0;
+   if (ddr_lat != 0) begin
+      ddr_lat <= ddr_lat - 1'd1;
+      if (ddr_lat == 1) begin ddr_dout <= ddr_mem[ddr_ra]; ddr_dout_ready <= 1; end
+   end
+   else if (!ddr_busy) begin
+      if (ddr_rd) begin ddr_ra <= ddr_addr[15:0]; ddr_lat <= 4'd10; end
+      if (ddr_we) begin : wr
+         integer i;
+         for (i = 0; i < 8; i = i + 1) if (ddr_be[i]) ddr_mem[ddr_addr[15:0]][i*8 +: 8] <= ddr_din[i*8 +: 8];
+      end
+   end
+end
 
 endmodule

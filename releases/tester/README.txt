@@ -2,8 +2,8 @@ NEC PC-6001 for MiSTer - tester build 2026-10-31
 ================================================
 
 This is a work-in-progress core. It runs N60-BASIC, loads tapes, runs ROM
-cartridges and has the PC-6031 disk unit (one drive); the mkII/SR models are
-not done yet.
+cartridges and has the PC-6031 disk unit (one drive). New in this build: a
+first PC-6001mkII (Machine > Model, below). The SR models are not done yet.
 
 Install
 -------
@@ -11,6 +11,8 @@ Unzip this at the root of the SD card (/media/fat/). It puts:
   _Computer/PC6001_20261031.rbf   the core
   games/PC6001/boot.rom           BASICROM.60 + CGROM60.60 + DISK.ROM (22528 bytes;
                                   DISK.ROM is the disk unit's firmware)
+  games/PC6001/boot1.rom          the mkII's ROMs: BASICROM.62 + VOICEROM.62 +
+                                  CGROM60.62 + CGROM60m.62 + KANJIROM.62 (98304 bytes)
   games/PC6001/MAME/              tapes from the MAME software list
   games/PC6001/TOSEC/             tapes from the TOSEC set
   games/PC6001/Cartridges/        ROM cartridges
@@ -37,7 +39,7 @@ Using it
   What the drive writes goes back into the .d88 file on the SD card; copy
   "Blank (formatted).d88" first to keep a clean one. To format a disk, mount
   it, CLOAD "Disk Format Program {m3}.p6" from the Disks folder, RUN and
-  answer y (it formats the disk in the drive). Only 1D disks (up to 176 KB)
+  answer y (it formats the disk in the drive). Only 1D disks
   and one drive; mkII/SR disks are not expected to work.
 - At "How Many Pages?" press Enter (or type 1-4).
 - Load a tape from the OSD (F12 > Tape), then type CLOAD and press Enter.
@@ -79,6 +81,15 @@ Input > Port 2 to "Touch panel (mouse)" and load the cartridge: the mouse is
 the pen. A cross shows where it is; hold the left button to draw. The pen
 follows the mouse at a limited speed (the cartridge drops fast jumps), so
 the cross may trail a quick movement. Joystick 2 is off while this is set.
+
+PC-6001mkII
+-----------
+Machine > Model: PC-6001mkII, then Apply and reset. It starts at the mkII's
+"SELECT BASIC MODE" menu: 1-4 are N60 BASIC / Extended BASIC (16 or 32 KB),
+5 is N60m-BASIC (64 KB, 40x20 text, 16 colours, SCREEN 2/3 graphics).
+New and lightly tested: the menu, modes 1 and 5 run on a MiSTer. Not there
+yet: voice (TALK), and Composite (TV) video (the mkII always shows RGB).
+mkII tapes and cartridges are welcome reports.
 
 What to test / report
 ---------------------

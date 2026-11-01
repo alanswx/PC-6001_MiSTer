@@ -44,7 +44,7 @@ struct Options {
     std::vector<TypeCmd> types;
     std::vector<std::string> after_motor; // --after-motor TEXT: typed when the tape motor stops (one per stop)
     uint32_t    tape_end_stop = 0;        // --stop-after-motor N: end when the motor has stayed off N frames
-    std::string dump_ram;                 // --dump-ram FILE: the 32 KB RAM at 8000h at the end
+    std::string dump_ram;                 // --dump-ram FILE: the 32 KB RAM at 8000h at the end (the mkII: all 64 KB)
     uint32_t    nudge = 0;                // --nudge N: idle N frames with tape left: press Space, then Return (4 times)
     uint32_t    type_press = 4, type_release = 4;
     std::string trace_file;               // --trace-cpu
@@ -55,6 +55,8 @@ struct Options {
     std::string tape_file;                // --tape FILE: .p6/.cas image through ioctl index 1
     std::string cart_file;                // --cart FILE: cartridge ROM through ioctl index 2
     std::string disk_rom;                 // DIR/DISK.ROM from --rom-dir: the PC-6031's firmware, at 5000h of boot.rom
+    std::string rom_dir = "../rom";       // boot1.rom (the mkII's ROMs) is made from DIR/*.62
+    bool mk2 = false;                     // --mk2: OSD Model = PC-6001mkII
     std::string disk_file;                // --disk FILE: a .d88 mounted as S0
     std::string disk_out;                 // --disk-out FILE: the image as the drive left it, written at the end
     int         composite = -1;               // --composite N: OSD Video = Composite, B/W graphics on TV = N
@@ -80,6 +82,7 @@ static void usage()
 "  --stop-at-frame N      exit after frame N (default 60)\n"
 "  --quiet                no progress on stderr\n"
 "  --rom-dir DIR          DIR/BASICROM.60 and DIR/CGROM60.60 (default ../rom); --basic FILE / --cgrom FILE\n"
+"  --mk2                  OSD Model = PC-6001mkII (boot1.rom from DIR/*.62)\n"
 "  --ram16k               16 KB RAM (C000-FFFF) instead of 32 KB\n"
 "  --cart FILE            load a cartridge ROM (OSD Cartridge); BASIC boots it\n"
 "  --composite N          the picture as a TV decodes it (rtl/pc6001_composite.sv); N, the black/white\n"
@@ -92,7 +95,7 @@ static void usage()
 "  --after-motor TEXT     type TEXT 20 frames after the tape motor stops (repeatable: one per stop, in order)\n"
 "  --stop-after-motor N   stop once the motor has stopped (after every --after-motor text) and stayed off\n"
 "                         N frames; writes last.png and prints a TAPE line\n"
-"  --dump-ram FILE        write the RAM (8000-FFFF, 32 KB) to FILE at the end\n"
+"  --dump-ram FILE        write the RAM (8000-FFFF, 32 KB; --mk2 0000-FFFF) to FILE at the end\n"
 "  --nudge N              with --stop-after-motor: when the machine waits N frames with tape left, press\n"
 "                         Space, then Return (up to 4 presses), as a user reading a title screen would\n"
 "  --type FRAME:TEXT      type TEXT from FRAME; \\n or {RETURN}, {STOP}, {F1}, {WAITn} ...\n"
@@ -157,7 +160,8 @@ static bool parse_args(int argc, char **argv, Options &o)
         else if (a == "--trace-io") o.io_file = next();
         else if (a == "--trace-from") o.trace_from = parse_num(next());
         else if (a == "--trace-to") o.trace_to = parse_num(next());
-        else if (a == "--rom-dir") { std::string d = next(); o.basic_rom = d + "/BASICROM.60"; o.cg_rom = d + "/CGROM60.60"; o.disk_rom = d + "/DISK.ROM"; }
+        else if (a == "--rom-dir") { std::string d = next(); o.rom_dir = d; o.basic_rom = d + "/BASICROM.60"; o.cg_rom = d + "/CGROM60.60"; o.disk_rom = d + "/DISK.ROM"; }
+        else if (a == "--mk2") o.mk2 = true;
         else if (a == "--no-disk-unit") o.disk_rom.clear();
         else if (a == "--disk") o.disk_file = next();
         else if (a == "--disk-out") o.disk_out = next();
@@ -357,6 +361,31 @@ bool Sim::load_rom()
     }
     ioctl_load(0, d);
     if (!opt.quiet) fprintf(stderr, "[sim] boot.rom: '%s' + '%s'\n", opt.basic_rom.c_str(), opt.cg_rom.c_str());
+
+    // boot1.rom, as Main loads it at the core's start (ioctl_index 40h), only with --mk2 so that the PC-6001's
+    // runs keep their timing: the mkII's ROMs in MAME's order,
+    // BASICROM.62 (32 KB), VOICEROM.62 (16 KB) at 8000h, CGROM60.62 at C000h, CGROM60m.62 at E000h (8 KB each),
+    // KANJIROM.62 (32 KB) at 10000h
+    static const struct { const char *name; uint32_t at, size; } mk2[] = {
+        { "BASICROM.62", 0x00000, 0x8000 }, { "VOICEROM.62", 0x08000, 0x4000 }, { "CGROM60.62", 0x0c000, 0x2000 },
+        { "CGROM60m.62", 0x0e000, 0x2000 }, { "KANJIROM.62", 0x10000, 0x8000 } };
+    if (!opt.mk2) return true;
+    std::vector<uint8_t> b1(0x18000, 0xFF);
+    bool any = false;
+    for (auto &m : mk2) {
+        std::vector<uint8_t> f;
+        if (!read_file(opt.rom_dir + "/" + m.name, f)) {
+            fprintf(stderr, "warning: %s/%s not found (boot1.rom)\n", opt.rom_dir.c_str(), m.name);
+            continue;
+        }
+        f.resize(m.size, 0xFF);
+        std::copy(f.begin(), f.end(), b1.begin() + m.at);
+        any = true;
+    }
+    if (any) {
+        ioctl_load(0, b1, 0x40);
+        if (!opt.quiet) fprintf(stderr, "[sim] boot1.rom: the mkII's ROMs from '%s'\n", opt.rom_dir.c_str());
+    }
     return true;
 }
 
@@ -583,6 +612,7 @@ int Sim::run()
     }
 
     top->ram16k = opt.ram16k;
+    top->mk2 = opt.mk2;
     top->tape_turbo = opt.tape_turbo;
     top->kbd_us = opt.kbd_us;
     top->composite = opt.composite >= 0;
@@ -600,6 +630,7 @@ int Sim::run()
     if (!opt.load_file.empty()) {
         if (!load_state()) return 2;
         top->ram16k = opt.ram16k;            // options are not part of the saved machine
+        top->mk2 = opt.mk2;
         top->tape_turbo = opt.tape_turbo;
         top->tape_overlay = opt.tape_overlay;
     } else {
@@ -636,7 +667,8 @@ int Sim::run()
         FILE *fr = fopen(opt.dump_ram.c_str(), "wb");
         if (!fr) perror(opt.dump_ram.c_str());
         else {
-            for (int i = 0; i < 32768; i++) { uint8_t v = top->rootp->top__DOT__pc6001__DOT__ram[i]; fwrite(&v, 1, 1, fr); }
+            // the PC-6001's 32 KB at 8000h; the mkII's whole 64 KB
+            for (int i = opt.mk2 ? 0 : 0x8000; i < 0x10000; i++) { uint8_t v = top->rootp->top__DOT__pc6001__DOT__ram[i]; fwrite(&v, 1, 1, fr); }
             fclose(fr);
         }
     }

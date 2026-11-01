@@ -41,6 +41,17 @@ module pc6031
 	output      [7:0] sd_buff_din,
 	input             sd_buff_wr,
 
+	// DDR3, for the disk image (rtl/d88_media.sv)
+	input             ddr_busy,
+	output      [7:0] ddr_burstcnt,
+	output     [28:0] ddr_addr,
+	input      [63:0] ddr_dout,
+	input             ddr_dout_ready,
+	output            ddr_rd,
+	output     [63:0] ddr_din,
+	output      [7:0] ddr_be,
+	output            ddr_we,
+
 	output            disk_ready,
 	output            disk_too_big,
 	output reg        motor
@@ -129,9 +140,9 @@ always @(posedge clk) begin
 end
 
 // the uPD765 and the disk
-wire [17:0] m_addr;
+wire [19:0] m_addr;
 wire  [7:0] m_q, m_d, fdc_dout;
-wire        m_we, m_ready, m_wprot;
+wire        m_rd, m_done, m_we, m_ready, m_wprot;
 
 upd765_lite fdc
 (
@@ -145,7 +156,9 @@ upd765_lite fdc
 	.tc(io_rd & sel_f8),
 	.int_o(fdc_int),
 	.m_addr(m_addr),
+	.m_rd(m_rd),
 	.m_q(m_q),
+	.m_done(m_done),
 	.m_we(m_we),
 	.m_d(m_d),
 	.m_ready(m_ready),
@@ -169,12 +182,23 @@ d88_media media
 	.sd_buff_din(sd_buff_din),
 	.sd_buff_wr(sd_buff_wr),
 	.addr(m_addr),
-	.q(m_q),
+	.rd(m_rd),
 	.we(m_we),
 	.d(m_d),
+	.q(m_q),
+	.done(m_done),
 	.ready(m_ready),
 	.wprot(m_wprot),
-	.too_big(disk_too_big)
+	.too_big(disk_too_big),
+	.ddr_busy(ddr_busy),
+	.ddr_burstcnt(ddr_burstcnt),
+	.ddr_addr(ddr_addr),
+	.ddr_dout(ddr_dout),
+	.ddr_dout_ready(ddr_dout_ready),
+	.ddr_rd(ddr_rd),
+	.ddr_din(ddr_din),
+	.ddr_be(ddr_be),
+	.ddr_we(ddr_we)
 );
 assign disk_ready = m_ready;
 

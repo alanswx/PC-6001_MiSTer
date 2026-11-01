@@ -15,6 +15,15 @@
 //
 //  Picture: 320x240 visible, 256x192 active with a 32 dot / 24 line border (as MAME's screen).
 //  Colours: PC6001VX's standard palette (src/config.cpp STDColor 0-16).
+//
+//  PC-6001mkII (mk2): modes 1-4 as above, in the mkII's colours (PC6001VX vdg.cpp COL62 tables, the 16-colour
+//  RGB palette config.cpp STDColor 41-56) and with a black border. Port C1 bit 1 = 0 selects the N60m screens
+//  (mode 5, PC6001VX device/mc6847.cpp PCZ80_07::Draw1line2), 320x200 from dot 8 and line 20:
+//    text (C1 bit 2 = 1): 40x20 cells of 10 lines, attribute plane at the page, characters at page+400h; the
+//      attribute is b7 the font's upper 256 characters, b6-4 background, b3-0 foreground (palette indices)
+//    graphics: attribute plane at the page, data plane at page+2000h, 40 bytes a line; C1 bit 3 = 0 320x200
+//      in 4 colours (a data bit and an attribute bit a dot), = 1 160x200 in 16 (two of each a dot)
+//  The page is port B0 bits 2-1: 8000h, C000h, 0000h, 4000h. C0 bits 2-0 are CSS3-1.
 //============================================================================
 
 module pc6001_vdg
@@ -27,10 +36,16 @@ module pc6001_vdg
 	input      [15:0] vram_base,     // C000h/E000h/8000h/A000h
 	input             disp_on,       // 8255 port C bit 1
 
+	input             mk2,           // PC-6001mkII
+	input       [1:0] page,          // port B0 bits 2-1
+	input       [3:1] crt_mode,      // port C1: b1 0 N60m, b2 1 text, b3 1 160x200
+	input       [2:0] css,           // port C0: CSS3-1
+
 	output reg [15:0] vaddr,         // combinational         // to the RAM's video port
 	input       [7:0] vdata,         // one clk after vaddr
 
-	output reg [11:0] cg_addr,       // combinational       // CGROM (4 KB: 256 chars x 16 lines)
+	output reg [13:0] cg_addr,       // combinational       // CGROM: b13 0 the N60 font (256 chars x 16 lines), 1 the
+	                                 // mkII's N60m font (512 chars x 16)
 	input       [7:0] cg_data,
 
 	output            busrq,         // hold the Z80 off the bus
@@ -56,14 +71,23 @@ localparam V_TOTAL   = 262;
 localparam V_ACTIVE0 = 24;        // first active line
 localparam V_VIS     = 240;
 localparam VS_START  = 250, VS_END = 253;
+localparam H5_ACTIVE0 = 8;        // mode 5
+localparam V5_ACTIVE0 = 20;
+localparam H_BUSRQ_MK2 = 304, H5_BUSRQ = 368;   // PC6001VX: 304 / 368 of 456 dots
 
 reg [8:0] h;   // 0..454
 reg [8:0] v;   // 0..261
 
 wire       vactive = v >= V_ACTIVE0 && v < V_ACTIVE0 + 192;
-wire [7:0] y = v - V_ACTIVE0;
+wire       vactive5 = v >= V5_ACTIVE0 && v < V5_ACTIVE0 + 200;
 
-assign busrq = disp_on && vactive && h < H_BUSRQ;
+// mode 5 for the whole frame, decided at its start
+reg        m5 = 0;
+always @(posedge clk) if (ce_pix && h == H_TOTAL - 1 && v == V_TOTAL - 1) m5 <= mk2 && !crt_mode[1];
+wire       m5_text = crt_mode[2];
+wire       m5_g160 = crt_mode[3];
+
+assign busrq = disp_on && (m5 ? vactive5 && h < H5_BUSRQ : vactive && h < (mk2 ? H_BUSRQ_MK2 : H_BUSRQ));
 
 always @(posedge clk) begin
 	if (reset) begin
@@ -114,6 +138,23 @@ always @(posedge clk) begin
 	end
 end
 
+// mode 5: text rows of 10 lines, 40 cells; graphics lines of 40 bytes
+reg  [3:0] t5_line;
+reg [10:0] t5_ofs;
+reg [12:0] g5_ofs;
+always @(posedge clk) begin
+	if (ce_pix && h == H_TOTAL - 1) begin
+		if (v == V5_ACTIVE0 - 1) begin
+			t5_line <= 0; t5_ofs <= 0; g5_ofs <= 0;
+		end
+		else if (vactive5) begin
+			if (t5_line == 9) begin t5_line <= 0; t5_ofs <= t5_ofs + 11'd40; end
+			else t5_line <= t5_line + 1'd1;
+			g5_ofs <= g5_ofs + 13'd40;
+		end
+	end
+end
+
 //----------------------------------------------------------------------------
 // Fetch: for each group of 8 dots, during the dot before it (4 clks). The RAM and the CGROM return data one
 // clk after the address, so the addresses are combinational:
@@ -128,21 +169,33 @@ wire  [4:0] fgrp = fx[7:3];
 wire  [8:0] tcell = {t_row, fgrp};
 wire [12:0] g_ofs = g_row_ofs + (g_wide ? {9'd0, fgrp[4:1]} : {8'd0, fgrp});
 
+// mode 5: 40 groups from dot 8
+wire [8:0]  fx5 = h - (H5_ACTIVE0 - 1);
+wire        slot5 = vactive5 && h >= H5_ACTIVE0 - 1 && h < H5_ACTIVE0 + 319 && fx5[2:0] == 3'd0;
+wire  [5:0] grp5 = fx5[8:3];
+wire [15:0] base5 = {~page[1], page[0], 14'd0};
+wire [12:0] ofs5 = (m5_text ? {2'd0, t5_ofs} : g5_ofs) + {7'd0, grp5};
+wire        slot = m5 ? slot5 : fetch_slot;
+
 reg  [7:0] f_attr, f_data;
 reg  [7:0] s_attr, s_data, s_pat;    // the group being displayed
 
 always @(*) begin
 	vaddr = vram_base;
-	if (fetch_slot) begin
+	if (m5) begin
+		vaddr = base5;
+		if (slot5) vaddr = base5 + (ph == 2'd0 ? 16'd0 : m5_text ? 16'h0400 : 16'h2000) + {3'd0, ofs5};
+	end
+	else if (fetch_slot) begin
 		if (ph == 2'd0) vaddr = vram_base + tcell;
 		else vaddr = vram_base + 16'h0200 + (ag ? {3'd0, g_ofs} : {7'd0, tcell});
 	end
-	cg_addr = {vdata, t_line};
+	cg_addr = m5 ? {1'b1, f_attr[7], vdata, t5_line} : {2'b00, vdata, t_line};
 end
 
 always @(posedge clk) begin
-	if (mode_slot && ph == 2'd1) mode_attr <= vdata;
-	if (fetch_slot) begin
+	if (mode_slot && !m5 && ph == 2'd1) mode_attr <= vdata;
+	if (slot) begin
 		case (ph)
 		2'd1: f_attr <= vdata;
 		2'd2: f_data <= vdata;
@@ -183,12 +236,15 @@ wire t_inv  = s_attr[0];
 
 reg        pix;
 reg  [1:0] pix2;
+reg        border;
 
 always @(*) begin
 	color = C_BLACK;
 	pix   = 1'b0;
 	pix2  = 2'd0;
+	border = 1'b0;
 	if (!(vactive && h >= H_ACTIVE0 && h < H_ACTIVE0 + 256)) begin
+		border = 1'b1;
 		// border: black in the text modes, the colour set's first colour in graphics (MC6847)
 		color = !ag ? C_BLACK : gm[0] ? (css_g ? C_M4_WHITE : C_M4_GREEN) : (css_g ? C_SG + 5'd4 : C_SG);
 	end
@@ -236,6 +292,57 @@ always @(*) begin
 	if (!disp_on) color = C_BLACK;
 end
 
+// the mkII: modes 1-4's colour codes in its palette (PC6001VX COL62_AN, _SG, _CG, _RG; the border is black)
+function automatic [3:0] mk2_n60(input [4:0] c);
+	case (c)
+	C_GREEN:     mk2_n60 = 4'd15;
+	C_ORANGE:    mk2_n60 = 4'd10;
+	5'd5:  mk2_n60 = 4'd10;  5'd6:  mk2_n60 = 4'd11;  5'd7:  mk2_n60 = 4'd12;  5'd8:  mk2_n60 = 4'd9;
+	5'd9:  mk2_n60 = 4'd15;  5'd10: mk2_n60 = 4'd14;  5'd11: mk2_n60 = 4'd13;  5'd12: mk2_n60 = 4'd1;
+	C_M4_GREEN:  mk2_n60 = 4'd10;
+	C_M4_WHITE:  mk2_n60 = 4'd15;
+	default:     mk2_n60 = 4'd8;      // black, dark green, dark orange, mode 4's dark colours
+	endcase
+endfunction
+
+// mode 5 graphics colours (COL62_CG2): CSS3 = 0 the 16 colours, 1 the mode 1-4 set
+function automatic [3:0] cg2(input set, input [3:0] c);
+	if (!set) cg2 = {c[3], c[0], c[2], c[1]};
+	else case (c[2:0])
+		3'd0: cg2 = 4'd10; 3'd1: cg2 = 4'd11; 3'd2: cg2 = 4'd12; 3'd3: cg2 = 4'd9;
+		3'd4: cg2 = 4'd15; 3'd5: cg2 = 4'd14; 3'd6: cg2 = 4'd13; default: cg2 = 4'd1;
+	endcase
+endfunction
+
+wire [8:0] dx5 = h - H5_ACTIVE0;
+wire [2:0] b5 = 3'd7 - dx5[2:0];
+reg  [3:0] pal;           // the mkII's palette index
+always @(*) begin
+	pal = 4'd0;
+	if (m5) begin
+		if (!(vactive5 && h >= H5_ACTIVE0 && h < H5_ACTIVE0 + 320) || !disp_on) pal = 4'd0;
+		else if (m5_text) pal = s_pat[b5] ? s_attr[3:0] : {css[1], s_attr[6:4]};
+		else if (!m5_g160) pal = cg2(css[2], {css[1], css[0], s_data[b5], s_attr[b5]});
+		else case (dx5[2:1])
+			2'd0: pal = cg2(css[2], {s_data[7:6], s_attr[7:6]});
+			2'd1: pal = cg2(css[2], {s_data[5:4], s_attr[5:4]});
+			2'd2: pal = cg2(css[2], {s_data[3:2], s_attr[3:2]});
+			default: pal = cg2(css[2], {s_data[1:0], s_attr[1:0]});
+		endcase
+	end
+	else pal = border || !disp_on ? 4'd8 : mk2_n60(color);
+end
+
+reg [23:0] rgb2;
+always @(*) begin
+	case (pal)
+	4'd0:  rgb2 = 24'h141414;  4'd1:  rgb2 = 24'hFFAC00;  4'd2:  rgb2 = 24'h00FFAC;  4'd3:  rgb2 = 24'hACFF00;
+	4'd4:  rgb2 = 24'hAC00FF;  4'd5:  rgb2 = 24'hFF00AC;  4'd6:  rgb2 = 24'h00ACFF;  4'd7:  rgb2 = 24'hACACAC;
+	4'd8:  rgb2 = 24'h141414;  4'd9:  rgb2 = 24'hFF0000;  4'd10: rgb2 = 24'h00FF00;  4'd11: rgb2 = 24'hFFFF00;
+	4'd12: rgb2 = 24'h0000FF;  4'd13: rgb2 = 24'hFF00FF;  4'd14: rgb2 = 24'h00FFFF;  default: rgb2 = 24'hFFFFFF;
+	endcase
+end
+
 
 reg [23:0] rgb;
 always @(*) begin
@@ -263,12 +370,12 @@ end
 
 always @(posedge clk) begin
 	if (ce_pix) begin
-		{R, G, B} <= rgb;
-		HBlank <= h >= H_VIS;
+		{R, G, B} <= mk2 ? rgb2 : rgb;
+		HBlank <= m5 ? h < H5_ACTIVE0 || h >= H5_ACTIVE0 + H_VIS : h >= H_VIS;
 		VBlank <= v >= V_VIS;
 		HSync  <= h >= HS_START && h < HS_END;
 		VSync  <= v >= VS_START && v < VS_END;
-		mono   <= ag && gm[0] && css_g;
+		mono   <= !mk2 && ag && gm[0] && css_g;
 		cidx   <= color;
 	end
 end

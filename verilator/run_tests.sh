@@ -35,6 +35,11 @@ run screen4_lines 1400 --type '155:2\n{WAIT30}10 SCREEN 4,2,2:CLS\n{WAIT20}20 LI
 run kbd_us 900 --kbd-us --type '155:1\n{WAIT40}PRINT "!@#$%^&*()-_=+[]\\;:'"'"',.<>/?"\n'
 # OSD Video = Composite (rtl/pc6001_composite.sv): the boot screen through the NTSC encoder and decoder
 run composite_boot 300 --composite 0
+# PC-6001mkII (--mk2: OSD Model, boot1.rom from ../rom/*.62): the mode menu, mode 1 (N60 BASIC, 16 KB) and mode 5
+# (N60m-BASIC, 40x20 text), without the disk unit as in MAME
+run mk2_menu 300 --mk2
+run mk2_mode1 800 --mk2 --no-disk-unit --type '300:1{WAIT100}\n'
+run mk2_mode5 900 --mk2 --no-disk-unit --type '300:5{WAIT100}\n{WAIT100}\n'
 if [ "${TAPES:-0}" = 1 ]; then
 	run tape_lights_proto 1500 --tape "../refs/software/pc6001/cas/Lights_Out_Hiroshi_Ishioka_/Lights Out (BASIC prototype) {m1p1}.cas" \
 		--type '155:1\n{WAIT30}CLOAD\n' --type '1250:LIST\n'
@@ -63,6 +68,13 @@ if [ "${TAPES:-0}" = 1 ]; then
 	m=(--type '155:2\n{WAIT30}10 SCREEN 4,2,2:COLOR 1,0,1:CLS\n{WAIT20}20 FOR X=0 TO 62 STEP 2:LINE(X,0)-(X,80):NEXT\n{WAIT20}30 FOR X=129 TO 191 STEP 2:LINE(X,0)-(X,80):NEXT\n{WAIT20}40 LINE(0,100)-(255,150),,BF:FOR I=1 TO 900:NEXT:COLOR 1,0,2\n{WAIT20}50 GOTO 50\n{WAIT20}RUN\n')
 	run composite_mode4 2200 --composite 0 "${m[@]}"
 	run composite_mode4_bw 2500 --composite 0 "${m[@]}"
+	# mkII mode 5 160x200 in 16 colours (SCREEN 3, C1 = 09h): bars of colours 1-16, 10 dots each
+	m=(--type '300:5{WAIT100}\n{WAIT60}\n10 SCREEN 3,2,2:CLS\n{WAIT20}20 FOR I=0 TO 15:LINE(I*10,0)-(I*10+9,99),I+1,BF:NEXT\n{WAIT20}30 GOTO 30\n{WAIT20}RUN\n')
+	run mk2_screen3 3300 --mk2 --no-disk-unit "${m[@]}"
+	# a mkII game: Chack'n Pop (mode 5, 1 page; Neo Kobe set) loads at 7x and shows its title screen
+	CP="../refs/software/pc6001/neokobe_full_unzipped/NEC PC-6001/Chack'n Pop (Carry lab)/Chack'n Pop [CT]/Chack'n Pop {m5p1}.cas"
+	run mk2_chackpop 5100 --mk2 --no-disk-unit --tape "$CP" --tape-turbo --type '300:5{WAIT100}1\n{WAIT80}CLOAD\n' \
+		--after-motor 'RUN\n'
 	run touch_draw 700 --cart "$C/_Utility_Touch_Panel_NEC_/[Utility] Touch Panel (ROM cart).bin" "${t[@]}"
 	# the same through the mouse (rtl/touch_mouse.sv): a fast drag, 60 counts a frame; the point follows on a
 	# straight line, slowly enough for the cartridge to draw all of it

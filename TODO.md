@@ -19,8 +19,9 @@
 - Printer (port B / C0), RS-232C (80-81).
 
 ## Later models
-- mkII: 64 KB RAM, F0-F3 banking, N60m mode 5 screens, 15 colours, kanji ROM, uPD7752 voice (CSCP has a full
-  model), 40x20 text.
+- mkII (started 2026-10-31: memory map, mode 5, palette, mode menu): check on a MiSTer; tapes and cartridges
+  made for the mkII; uPD7752 voice (CSCP has a full model; VOICEROM.62 is in boot1.rom); the joystick
+  interrupt (INT2); composite for its colours; the PSG port A2 sync bits PC6001VX gives it.
 - PC-6601: internal uPD765 floppy.
 - SR: YM2203, SR video modes, programmable interrupt vectors (B8-BF, FA, FB).
 

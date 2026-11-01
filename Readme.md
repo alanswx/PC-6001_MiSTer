@@ -1,6 +1,7 @@
 # NEC PC-6001 for MiSTer
 
-Work in progress: a MiSTer core for the NEC PC-6001 (1981), with the mkII, PC-6601 and SR models as later goals.
+Work in progress: a MiSTer core for the NEC PC-6001 (1981) and the PC-6001mkII (1983), with the PC-6601 and SR
+models as later goals.
 
 ## Status
 
@@ -17,7 +18,8 @@ Work in progress: a MiSTer core for the NEC PC-6001 (1981), with the mkII, PC-66
 | PC-6031 disk unit (one drive, .d88): its own Z80 running DISK.ROM, 16 KB RAM, a uPD765, the 8255 pair at D0h | done: N60 Extended BASIC formats, saves, lists and loads, in the simulator and on a MiSTer (below) |
 | Touch panel on joystick port 2, worked by the mouse | done: draws in the simulator; on a MiSTer the cursor and taps work (drags not tried yet: the KVM used for testing cannot hold a button). The protocol is from the Touch Panel cartridge's code; no emulator has it |
 | Printer, RS-232C, voice, Senshi no Cartridge (banked) | not yet |
-| mkII / 6601 / SR | not yet |
+| PC-6001mkII (Machine > Model): 64 KB RAM, the F0-F3 memory map, the mode menu, modes 1-4 in its colours, mode 5 (N60m: 40x20 text, 320x200 and 160x200 graphics), 16-colour palette, kanji ROM | in progress: boots the mode menu, N60 BASIC and N60m-BASIC in the simulator, matching MAME; voice (uPD7752) not yet; Composite (TV) is for the PC-6001 only |
+| 6601 / SR | not yet |
 
 It boots N60-BASIC to "How Many Pages?", takes keyboard input, runs BASIC (including SCREEN 3/4 graphics) and
 loads tapes and disks, in the Verilator simulation and on a MiSTer. The Quartus build fits (30% ALMs, 76% of the
@@ -30,10 +32,11 @@ The menu follows the MiSTer computer-core OSD and tape standards:
 | Row | Page | |
 |---|---|---|
 | Cartridge | top | a .rom / .bin / .60 ROM (up to 16 KB); resets the machine, which boots it; not remembered |
-| Disk | top | a .d88 image (up to 176 KB: a 1D disk) in the PC-6031's drive 1; the drive's writes go back to the file. Needs DISK.ROM in boot.rom |
+| Disk | top | a .d88 image (up to 512 KB; the PC-6031 is a 1D drive) in its drive 1; the drive's writes go back to the file. Needs DISK.ROM in boot.rom |
 | Tape | top | a .p6 / .cas / .p6t image (up to 64 KB), rewound at each load; not remembered. A .p6t plays its byte image; its gaps are skipped |
 | Load ROM | top | another boot.rom for this session; resets the machine |
-| Memory | top | 32 KB or 16 KB |
+| Memory | top | 32 KB or 16 KB (the PC-6001; the mkII has 64 KB) |
+| Model | Machine | PC-6001 (default) or PC-6001mkII (its ROMs in boot1.rom, below) |
 | Tape speed | Machine | 7x (default) or Normal; taken when the motor starts |
 | Remove cartridge | Machine | button: takes the cartridge out and resets to BASIC |
 | Rewind tape | Machine | button |
@@ -45,7 +48,7 @@ The menu follows the MiSTer computer-core OSD and tape standards:
 | Swap Alt/Win keys | Input | Yes: the Win keys are GRAPH |
 | Port 2 | Input | joystick port 2: Joystick (default), or Touch panel (mouse): the pad the Touch Panel cartridge draws with (below) |
 
-Memory and Aspect ratio take effect at **Apply and reset** ("Changes pending" shows until then); the others act
+Model, Memory and Aspect ratio take effect at **Apply and reset** ("Changes pending" shows until then); the others act
 at once.
 
 Next-step hint: while the tape is stopped, the same box says what to type. A tape that starts with a BASIC
@@ -73,6 +76,16 @@ cat BASICROM.60 CGROM60.60 DISK.ROM > boot.rom
 A 20 KB boot.rom (no DISK.ROM) has no disk unit: ports D0h-D3h read FFh, as with nothing connected, and a disk
 mounted then gives "No disk unit".
 
+For the PC-6001mkII, `boot1.rom` (96 KB) in the same folder, in MAME's order: `BASICROM.62` (32 KB),
+`VOICEROM.62` (16 KB), `CGROM60.62`, `CGROM60m.62` (8 KB each), `KANJIROM.62` (32 KB):
+
+```
+cat BASICROM.62 VOICEROM.62 CGROM60.62 CGROM60m.62 KANJIROM.62 > boot1.rom
+```
+
+Main loads both at the core's start; Machine > Model picks which one runs. The disk unit's DISK.ROM stays in
+boot.rom and serves both.
+
 The sub CPU's 8049 ROM is not needed: the only public dump is bad (MAME marks it BAD_DUMP, and 60% of its
 bytes equal their own address), so the core implements the sub CPU's behaviour, as MAME, PC6001V, PC6001VX and
 PC6001VW do.
@@ -91,7 +104,7 @@ cartridge, answer "How Many Files?" and "How Many Pages?", then `FILES`, `SAVE"N
 under Extended BASIC). Tested in the simulator and on Mister 126: format, `SAVE`, `FILES`, `LOAD` and `RUN` after
 a core reload, with the image on the SD card changed.
 
-The image is held in block RAM while it is mounted (176 KB) and written back to the file 512 bytes at a time as
+The image is held in DDR3 while it is mounted (up to 512 KB) and written back to the file 512 bytes at a time as
 the drive changes it, unless it is mounted read-only or its D88 header says protected. Not done yet: a second
 drive, disks larger than 1D, formatting a track the image does not already have (an "unformatted" .d88 with no
 tracks), and booting "SYS" disks (Nyahacks 60).
@@ -115,6 +128,21 @@ draw. The pad answers the way the cartridge's code asks (PSG port B bit 4 latche
 MSB first on port A bit 2, port A bit 0 is the pen). The cartridge ignores jumps of 5 steps or more between two
 samples (a real pen moves smoothly; it samples about every 6 ms while drawing), so the pen point follows the
 mouse on a straight line at 333 steps a second, and the pen goes down only once it has caught up. While the option is on, joystick 2 is not connected.
+
+## PC-6001mkII
+
+Machine > Model = PC-6001mkII (then Apply and reset) runs the mkII's ROMs from boot1.rom. It starts at the
+"SELECT BASIC MODE" menu: modes 1-4 are N60 BASIC and N60 Extended BASIC in 16 or 32 KB, mode 5 is N60m-BASIC
+with 64 KB. The memory map follows PC6001VX (MEM62): ports F0/F1 pick what each 8 KB block reads (BASIC, the
+kanji or voice ROM as port C2 selects, the cartridge, RAM), F2 where each 16 KB writes, F3 the waits and
+interrupt masks, F4 the sub CPU's vector, F6 the timer (2048 x (F6+1) Z80 states), F8 where the CG ROM appears.
+The mkII draws modes 1-4 in its own colours (white text on black, a black border), and port C1 switches to the
+N60m screens: 40x20 text in 16 colours, 320x200 in 4 and 160x200 in 16. MAME draws mode 5 text in 12-line rows
+over 240 lines; the core uses 10-line rows over 200, as PC6001VX and CSCP do.
+
+Checked against MAME in the simulator: the menu, mode 1 ("7100 Bytes free") and mode 5 ("N60m-BASIC Ver.1.7,
+12436 Bytes free") match. Not done yet: the uPD7752 voice (ports E0h-E3h read idle), the joystick interrupt,
+and composite video for the mkII's colours.
 
 ## Composite video
 

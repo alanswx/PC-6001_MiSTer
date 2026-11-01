@@ -1,5 +1,5 @@
 // uPD765 floppy controller, the commands the PC-80S31 / PC-6031 firmware (DISK.ROM) uses, on one drive whose disk
-// is a .d88 image in RAM (rtl/d88_media.sv). Non-DMA mode: in the execution phase each data byte raises INT and
+// is a .d88 image in DDR3 (rtl/d88_media.sv). Non-DMA mode: in the execution phase each data byte raises INT and
 // waits for the CPU (no overrun); TC (the firmware reads port F8h) ends a transfer at the end of the sector.
 //
 // SPECIFY, SENSE DRIVE STATUS, RECALIBRATE, SEEK, SENSE INTERRUPT STATUS, READ DATA, WRITE DATA, READ ID and
@@ -24,8 +24,10 @@ module upd765_lite
 	input             tc,             // one clk
 	output            int_o,
 
-	output reg [17:0] m_addr,
-	input       [7:0] m_q,            // m_addr's byte, two clks after it is set
+	output reg [19:0] m_addr,
+	output reg        m_rd,           // one clk; m_q holds the byte at m_done
+	input       [7:0] m_q,
+	input             m_done,         // a read or write finished
 	output reg        m_we,
 	output reg  [7:0] m_d,
 	input             m_ready,
@@ -77,8 +79,9 @@ localparam X_TRK = 4'd0, X_HDR = 4'd1, X_MATCH = 4'd2, X_DATA = 4'd3, X_GAP = 4'
 reg  [3:0] xs;
 reg  [2:0] bi;                     // byte index while reading the track table
 reg  [3:0] hi;                     // header byte index
-reg  [1:0] mw;                     // m_q wait
-reg [17:0] toff, soff;             // track and sector offsets
+reg  [1:0] mw;                     // a read: 0 to ask, 1 waiting
+reg        m_pend;                 // a write not yet done
+reg [19:0] toff, soff;             // track and sector offsets
 reg  [7:0] h_c, h_h, h_r, h_n, h_dens, h_st;
 reg [15:0] h_nsec, h_size;
 reg [15:0] si;                     // sector index in the track
@@ -113,7 +116,10 @@ endtask
 
 always @(posedge clk) begin
 	m_we <= 1'b0;
+	m_rd <= 1'b0;
+	if (m_done) m_pend <= 0;
 	if (reset) begin
+		m_pend <= 0;
 		phase <= P_CMD;
 		ncmd <= 0;
 		res_int <= 0;
@@ -196,18 +202,19 @@ always @(posedge clk) begin
 				else case (xs)
 				// the track's offset from the table at 20h
 				X_TRK: begin
-					m_addr <= 18'h20 + {pcn, hd, 2'b00} + bi;
-					if (mw != 2) mw <= mw + 1'd1;
-					else begin
+					if (mw == 0) begin
+						if (!m_pend) begin m_addr <= 20'h20 + {pcn, hd, 2'b00} + bi; m_rd <= 1'b1; mw <= 1; end
+					end
+					else if (m_done) begin
 						mw <= 0;
 						case (bi)
 						3'd0: toff[7:0]   <= m_q;
 						3'd1: toff[15:8]  <= m_q;
-						3'd2: toff[17:16] <= m_q[1:0];
+						3'd2: toff[19:16] <= m_q[3:0];
 						default: ;
 						endcase
 						if (bi == 3) begin
-							soff <= {toff[17:16], toff[15:0]};
+							soff <= toff;
 							si <= 0; hi <= 0;
 							r_cur <= cmd[4];
 							xs <= X_HDR;
@@ -217,13 +224,14 @@ always @(posedge clk) begin
 				end
 				// the 16-byte header of sector si at soff
 				X_HDR:
-					if ({toff[17:16], toff[15:0]} == 0) begin
+					if (toff == 0) begin
 						result7(8'h40 | hdus, 8'h01, 8'h00, cmd[2], cmd[3], cmd[4], cmd[5]);   // no track
 					end
 					else begin
-						m_addr <= soff + hi;
-						if (mw != 2) mw <= mw + 1'd1;
-						else begin
+						if (mw == 0) begin
+							if (!m_pend) begin m_addr <= soff + hi; m_rd <= 1'b1; mw <= 1; end
+						end
+						else if (m_done) begin
 							mw <= 0;
 							case (hi)
 							4'd0: h_c <= m_q;
@@ -259,7 +267,7 @@ always @(posedge clk) begin
 					end
 					else begin
 						si <= si + 1'd1;
-						soff <= soff + 18'd16 + h_size;
+						soff <= soff + 20'd16 + h_size;
 						hi <= 0;
 						xs <= X_HDR;
 					end
@@ -268,11 +276,8 @@ always @(posedge clk) begin
 					if (is_read) begin
 						if (!drq) begin
 							if (tmr != 0) tmr <= tmr - 1'd1;
-							else begin
-								m_addr <= soff + 18'd16 + di;
-								if (mw != 2) mw <= mw + 1'd1;
-								else begin mw <= 0; dbuf <= m_q; drq <= 1'b1; end
-							end
+							else if (mw == 0) begin m_addr <= soff + 20'd16 + di; m_rd <= 1'b1; mw <= 1; end
+							else if (m_done) begin mw <= 0; dbuf <= m_q; drq <= 1'b1; end
 						end
 						else if (rd && a0) begin
 							drq <= 0;
@@ -284,12 +289,12 @@ always @(posedge clk) begin
 					else begin
 						if (!drq) begin
 							if (tmr != 0) tmr <= tmr - 1'd1;
-							else drq <= 1'b1;
+							else if (!m_pend) drq <= 1'b1;
 						end
 						else if (wr && a0) begin
 							drq <= 0;
-							m_addr <= soff + 18'd16 + di;
-							m_d <= din; m_we <= 1'b1;
+							m_addr <= soff + 20'd16 + di;
+							m_d <= din; m_we <= 1'b1; m_pend <= 1'b1;
 							tmr <= T_BYTE;
 							if (di + 1'd1 == h_size || tc_seen) begin xs <= X_GAP; tmr <= T_GAP; end
 							di <= di + 1'd1;
@@ -297,7 +302,8 @@ always @(posedge clk) begin
 					end
 				// after a sector: TC ends the command; otherwise the next sector, up to EOT
 				X_GAP:
-					if (tc_seen || st0[6]) begin
+					if (m_pend) ;
+					else if (tc_seen || st0[6]) begin
 						result7(st0 | hdus, st1, st2, cmd[2], cmd[3], r_cur + 1'd1, cmd[5]);
 					end
 					else if (tmr != 0) tmr <= tmr - 1'd1;
@@ -306,7 +312,7 @@ always @(posedge clk) begin
 					end
 					else begin
 						r_cur <= r_cur + 1'd1;
-						soff <= {toff[17:16], toff[15:0]};
+						soff <= toff;
 						si <= 0; hi <= 0; mw <= 0;
 						xs <= X_HDR;
 					end
@@ -317,21 +323,22 @@ always @(posedge clk) begin
 					end
 					else if (!drq) begin
 						if (tmr != 0) tmr <= tmr - 1'd1;
-						else drq <= 1'b1;
+						else if (!m_pend) drq <= 1'b1;
 					end
 					else if (wr && a0) begin
 						drq <= 0;
 						fid[fi] <= din;
 						m_addr <= soff + fi;
-						m_d <= din; m_we <= 1'b1;
+						m_d <= din; m_we <= 1'b1; m_pend <= 1'b1;
 						tmr <= T_BYTE;
 						fi <= fi + 1'd1;
 						if (fi == 3) begin di <= 0; xs <= X_FILL; end
 					end
 				X_FILL:
-					if (di != h_size) begin
-						m_addr <= soff + 18'd16 + di;
-						m_d <= cmd[5]; m_we <= 1'b1;
+					if (m_pend || m_we) ;
+					else if (di != h_size) begin
+						m_addr <= soff + 20'd16 + di;
+						m_d <= cmd[5]; m_we <= 1'b1; m_pend <= 1'b1;
 						di <= di + 1'd1;
 					end
 					else if (si + 1'd1 == {8'd0, cmd[3]}) begin
@@ -339,7 +346,7 @@ always @(posedge clk) begin
 					end
 					else begin
 						si <= si + 1'd1;
-						soff <= soff + 18'd16 + h_size;
+						soff <= soff + 20'd16 + h_size;
 						hi <= 0; mw <= 0;
 						xs <= X_HDR;
 					end
