@@ -7,7 +7,7 @@
 # TAPES=1 adds the tape, cartridge and disk tests, which use ../refs/software (not in the repository either).
 set -u
 cd "$(dirname "$0")"
-SIM=./obj_dir_headless/Vtop
+SIM=${SIM:-./obj_dir_headless/Vtop}   # SIM=path: another build
 OUT=out/test
 mkdir -p "$OUT" tests/expected
 [ -x "$SIM" ] || make headless >/dev/null || exit 1
@@ -40,6 +40,8 @@ run composite_boot 300 --composite 0
 run mk2_menu 300 --mk2
 run mk2_mode1 800 --mk2 --no-disk-unit --type '300:1{WAIT100}\n'
 run mk2_mode5 900 --mk2 --no-disk-unit --type '300:5{WAIT100}\n{WAIT100}\n'
+# the uPD7752 (rtl/upd7752.sv): TALK speaks "geimu o-ba-" (external frames, the voice ROM's code) and returns Ok
+run mk2_talk 900 --mk2 --no-disk-unit --type '300:5{WAIT100}\n{WAIT100}\nTALK"F2 GEIMUO-BA-."\n'
 if [ "${TAPES:-0}" = 1 ]; then
 	run tape_lights_proto 1500 --tape "../refs/software/pc6001/cas/Lights_Out_Hiroshi_Ishioka_/Lights Out (BASIC prototype) {m1p1}.cas" \
 		--type '155:1\n{WAIT30}CLOAD\n' --type '1250:LIST\n'

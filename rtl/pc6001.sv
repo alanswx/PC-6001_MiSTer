@@ -449,6 +449,7 @@ pc6001_sub sub
 	.clk(clk_sys),
 	.reset(cpu_reset),
 	.ce_cpu(ce_cpu),
+	.mk2(mk2),
 	.addr(A[1:0]),
 	.rd(io_rd & sel_ppi),
 	.wr(io_wr & sel_ppi),
@@ -602,7 +603,24 @@ jt49_bus psg
 	.IOB_oe()
 );
 
-assign audio = {1'b0, psg_sound, 5'd0};
+// the mkII's uPD7752 (rtl/upd7752.sv), ports E0h-E3h
+wire        [7:0] voice_dout;
+wire signed [13:0] voice;
+upd7752 vsp
+(
+	.clk(clk_sys),
+	.reset(cpu_reset | ~mk2),
+	.addr(A[1:0]),
+	.rd(io_rd & sel_e),
+	.wr(io_wr & sel_e),
+	.din(cpu_dout),
+	.dout(voice_dout),
+	.sample(voice)
+);
+
+// the mkII mixes the voice in at half the PSG's level: 0..16368 + 16384 +- 16384
+assign audio = mk2 ? {2'b00, psg_sound, 4'd0} + 16'd16384 + {{2{voice[13]}}, voice} * 16'sd2
+                   : {1'b0, psg_sound, 5'd0};
 
 //----------------------------------------------------------------------------
 // PC-6031 disk unit at D0h-D3h
@@ -669,7 +687,7 @@ always @(*) begin
 		default: io_dout = 8'hff;
 	endcase
 	else if (sel_c && A[1:0] == 2'd2) io_dout = {6'b111111, kj_lr, kj_rom};
-	else if (sel_e) io_dout = 8'h00;
+	else if (sel_e) io_dout = voice_dout;
 	else if (sel_ppi) io_dout = ppi_dout;
 	else if (sel_fdd) io_dout = fdd_dout;
 	else if (sel_psg && A[1:0] == 2'd2) io_dout = psg_dout;

@@ -87,8 +87,11 @@ PC-6001mkII
 Machine > Model: PC-6001mkII, then Apply and reset. It starts at the mkII's
 "SELECT BASIC MODE" menu: 1-4 are N60 BASIC / Extended BASIC (16 or 32 KB),
 5 is N60m-BASIC (64 KB, 40x20 text, 16 colours, SCREEN 2/3 graphics).
-New and lightly tested: the menu, modes 1 and 5 run on a MiSTer. Not there
-yet: voice (TALK), and Composite (TV) video (the mkII always shows RGB).
+New and lightly tested: the menu, modes 1 and 5 run on a MiSTer; about 60 of
+110 mode 5 tapes reach their title or game in the simulator. TALK speaks
+(e.g. TALK"F2 KONNICHIWA." - the text ends with "." and starts F2-F6); the
+chip's built-in phrases (F40.-F44.) are silent. Composite (TV) video is off
+on the mkII (it always shows RGB).
 mkII tapes and cartridges are welcome reports.
 
 What to test / report

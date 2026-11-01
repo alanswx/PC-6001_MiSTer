@@ -217,4 +217,16 @@ always @(posedge clk_sys) begin
    end
 end
 
+
+`ifdef VSP_TRACE
+// make EXTRA=-DVSP_TRACE: the uPD7752's frames and samples, for runs/.../ref7752.c (PC6001VX's engine)
+always @(posedge clk_sys) begin
+   if (pc6001.vsp.wr && pc6001.vsp.addr == 2'd2) $display("vsp wr 2 %02x", pc6001.vsp.din);
+   if (pc6001.vsp.setup && pc6001.vsp.sidx == 0 && pc6001.vsp.dstep == 0)
+      $display("vsp frame %02x %02x %02x %02x %02x %02x %02x", pc6001.vsp.pbuf[0], pc6001.vsp.pbuf[1], pc6001.vsp.pbuf[2],
+               pc6001.vsp.pbuf[3], pc6001.vsp.pbuf[4], pc6001.vsp.pbuf[5], pc6001.vsp.pbuf[6]);
+   if (pc6001.vsp.es == 4'd5) $display("vsp s %0d", pc6001.vsp.y);
+end
+`endif
+
 endmodule

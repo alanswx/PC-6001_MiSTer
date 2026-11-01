@@ -125,6 +125,18 @@ Outlaw and others). Points worth noting:
 Earlier: Lights Out (.cas) at Normal and 3x, and Tiny Xevious (.p6t) at 3x with the hint (`TYPE CLOAD ↵`, then
 `TYPE RUN ↵`) and the status bar (`0:59/ 2:57 x3`; 2:57 is the byte image without the P6T footer).
 
+## PC-6001mkII, mode 5 tapes (2026-11-01)
+
+The 110 Neo Kobe tapes tagged `{m5..}` (N60m-BASIC), at 7x in the simulator, the same method with Machine >
+Model = PC-6001mkII and no disk unit (`tape_sweep.py` picks 5 at the mode menu for a `{m5..}` name; contact
+sheets in `runs/mk2sweep/`, not in the repository).
+
+| Result | Tapes |
+|---|---|
+| Title, menu or game on screen | about 60: Chack'n Pop, Grobda, Hydlide, Front Line, Thunder Force, Volguard, Victorious Nine, Lizard, Aspic, Bokosuka Wars, Castle Excellent, Backgammon, Daidassou, Hurry Fox, Ice Block, New Fan Fun, Tenkizu, Like Slide, ... |
+| Waits for something the sweep does not do | about 35: the `mon r-0` titles (machine code started from the monitor: American Truck, Galaxian, Pac-Man, Dezeni Land, Zunou 4989, ...), and multi-part loaders whose first part ends at Ok or asks for the next tape (Karuizawa, Legends of Star Arthur, Kirei ni Naritai, Submarine 606, Tanabata, White Day Happening) |
+| To look at | about 15: Jelda (back at the mode menu), black screens (1-Screen Programs, Dream Land, Forts tape 1, Homerun King, Vital Lamp, Water Pipe, Mandelbrot), BASIC errors (Karuizawa side B ?SN, Punch Ball ?SN, Umibe no Monogatari 2 ?FC, White Day Happening 2 ?FC), Scratch ("PUSH CAPS LOCK") |
+
 ## Not done
 
 - WAV input, CSAVE, the .p6t footer's gaps and 600 baud blocks.

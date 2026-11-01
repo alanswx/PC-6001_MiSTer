@@ -319,6 +319,7 @@ set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to VGA_EN
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/tape_overlay.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/i8255_m0.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/d88_media.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/upd7752.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/upd765_lite.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/pc6031.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/touch_panel.sv

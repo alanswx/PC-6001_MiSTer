@@ -17,8 +17,8 @@ models as later goals.
 | Cartridge ROM at 4000-7FFF (up to 16 KB), booted by BASIC's "AB" check | done (12 of 14 carts start; Crowley Manor stops at the same blank screen as in MAME; Touch Panel draws with the mouse as its pad, below) |
 | PC-6031 disk unit (one drive, .d88): its own Z80 running DISK.ROM, 16 KB RAM, a uPD765, the 8255 pair at D0h | done: N60 Extended BASIC formats, saves, lists and loads, in the simulator and on a MiSTer (below) |
 | Touch panel on joystick port 2, worked by the mouse | done: draws in the simulator; on a MiSTer the cursor and taps work (drags not tried yet: the KVM used for testing cannot hold a button). The protocol is from the Touch Panel cartridge's code; no emulator has it |
-| Printer, RS-232C, voice, Senshi no Cartridge (banked) | not yet |
-| PC-6001mkII (Machine > Model): 64 KB RAM, the F0-F3 memory map, the mode menu, modes 1-4 in its colours, mode 5 (N60m: 40x20 text, 320x200 and 160x200 graphics), 16-colour palette, kanji ROM | in progress: boots the mode menu, N60 BASIC and N60m-BASIC in the simulator, matching MAME; voice (uPD7752) not yet; Composite (TV) is for the PC-6001 only |
+| Printer, RS-232C, Senshi no Cartridge (banked) | not yet |
+| PC-6001mkII (Machine > Model): 64 KB RAM, the F0-F3 memory map, the mode menu, modes 1-4 in its colours, mode 5 (N60m: 40x20 text, 320x200 and 160x200 graphics), 16-colour palette, kanji ROM | in progress: the mode menu, N60 BASIC and N60m-BASIC match MAME; mkII tapes such as Chack'n Pop run; TALK speaks (uPD7752, below); Composite (TV) is for the PC-6001 only |
 | 6601 / SR | not yet |
 
 It boots N60-BASIC to "How Many Pages?", takes keyboard input, runs BASIC (including SCREEN 3/4 graphics) and
@@ -141,8 +141,15 @@ N60m screens: 40x20 text in 16 colours, 320x200 in 4 and 160x200 in 16. MAME dra
 over 240 lines; the core uses 10-line rows over 200, as PC6001VX and CSCP do.
 
 Checked against MAME in the simulator: the menu, mode 1 ("7100 Bytes free") and mode 5 ("N60m-BASIC Ver.1.7,
-12436 Bytes free") match. Not done yet: the uPD7752 voice (ports E0h-E3h read idle), the joystick interrupt,
-and composite video for the mkII's colours.
+12436 Bytes free") match. Not done yet: the joystick interrupt, and composite video for the mkII's colours.
+
+Voice: `rtl/upd7752.sv` is the uPD7752 at E0h-E3h, a hardware rewrite of the synthesis engine PC6001VX uses
+(cisc's "uPD7752 flavoured" engine, device/pd7752.cpp): frames of 7 parameter bytes, linear interpolation, a
+pulse and noise source and five second-order filters, at 10 kHz, mixed with the PSG. Fed the same frames and
+noise bits it gives the C engine's samples exactly (13800 of 13800 for `TALK"F2 GEIMUO-BA-."`). BASIC's TALK
+reads its phonemes from VOICEROM.62 and sends them as external frames, so TALK with romaji works; the string
+ends with "." or "?", and N60m-BASIC takes F2-F6 (not F1). The chip's built-in phrases (`TALK"F40."` to
+`"F44."`, commands 0-4) are recordings PC6001VX plays from WAV files, so here they are silent.
 
 ## Composite video
 

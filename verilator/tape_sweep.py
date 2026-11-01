@@ -7,6 +7,8 @@ ends once the motor has stayed off for 10 s. Writes <out>/<speed>/<tape>/last.pn
 contact sheet per speed.
 
   ./tape_sweep.py --out ../runs/sweep ../releases/tester/games/PC6001/MAME ../releases/tester/games/PC6001/TOSEC
+
+A mode 5 tape ({m5p2}) runs on the PC-6001mkII (--mk2, no disk unit): 5 at the mode menu, then the pages.
 """
 import argparse, csv, os, re, subprocess, sys
 from concurrent.futures import ThreadPoolExecutor
@@ -48,13 +50,16 @@ def run(job):
     play = os.path.getsize(path) * 60 // 100 // (1 if speed == "Normal" else int(speed.rstrip("x")))
     cap = play * 3 // 2 + 6000
     setup = next((v for k, v in SETUP.items() if name.startswith(k)), "")
+    boot = f"300:5{{WAIT100}}{pages}\\n{{WAIT80}}" if mode == 5 else f"155:{pages}\\n{{WAIT30}}"
     args = [SIMS.get(speed, SIM), "--quiet", "--rom-dir", ROM, "--out", d, "--tape", path,
-            "--type", f"155:{pages}\\n{{WAIT30}}{setup}CLOAD\\n", "--after-motor", "RUN\\n",
+            "--type", f"{boot}{setup}CLOAD\\n", "--after-motor", "RUN\\n",
             "--nudge", "300", "--stop-after-motor", "600", "--stop-at-frame", str(cap)]
     if speed != "Normal":
         args.append("--tape-turbo")
     if name.startswith(RAM16):
         args.append("--ram16k")
+    if mode == 5:
+        args += ["--mk2", "--no-disk-unit"]
     if out_s is None:
         r = subprocess.run(args, capture_output=True, text=True)
         out_s, code = r.stdout, r.returncode

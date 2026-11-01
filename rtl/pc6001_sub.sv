@@ -21,6 +21,7 @@ module pc6001_sub
 	input             clk,
 	input             reset,
 	input             ce_cpu,          // Z80 clock enable (3.99 MHz): the sub CPU's delays count Z80 states
+	input             mk2,             // the mkII's sub CPU: commands 04h / 05h switch kana (PC6001VX SUB62)
 
 	// Z80 side
 	input       [1:0] addr,
@@ -231,6 +232,7 @@ reg        ps2_tog;
 wire [7:0] kpos = ps2_to_p6(ps2_key[8:0]);
 
 reg        kana, kkana;
+reg        cmd_kana = 0, cmd_kkana = 0;   // commands 04h / 05h (the mkII)
 reg        key_ev;            // a new key pressed (or repeated) this clk
 reg  [6:0] key_pos;           // {y, x} for its code
 reg        key_ovr, key_osh;  // US layout: the code uses key_osh in place of SHIFT
@@ -281,9 +283,10 @@ always @(posedge clk) begin
 		rep_on <= 0;
 	end
 	else begin
-		// KANA and SHIFT+PAGE toggle the kana modes (after their own key code is taken)
-		if (key_ev && key_pos == {4'd9, 3'd0}) kana <= ~kana;
-		if (key_ev && key_pos == {4'd9, 3'd3} && on_shift) kkana <= ~kkana;
+		// KANA and SHIFT+PAGE toggle the kana modes (after their own key code is taken); on the mkII the main CPU
+		// can also, by commands 04h and 05h
+		if ((key_ev && key_pos == {4'd9, 3'd0}) ^ cmd_kana) kana <= ~kana;
+		if ((key_ev && key_pos == {4'd9, 3'd3} && on_shift) ^ cmd_kkana) kkana <= ~kkana;
 
 		if (rep_on) begin
 			if (!mat[rep_phys[6:3]][rep_phys[2:0]]) rep_on <= 1'b0;
@@ -361,6 +364,8 @@ assign tape_ready = st == S_IDLE && cmt_st == 2'd1 && !req_cmtr && !ibf;
 
 always @(posedge clk) begin
 	sub_wr <= 1'b0;
+	cmd_kana <= 1'b0;
+	cmd_kkana <= 1'b0;
 	if (reset) begin
 		st <= S_IDLE;
 		{req_joy, req_key1, req_cmtr, req_cmte, req_key2, req_key3} <= 0;
@@ -378,6 +383,8 @@ always @(posedge clk) begin
 		if (cmd_strobe) begin
 			if (cmto) cmto <= 1'b0;   // cassette output byte (not yet)
 			else case (cmd_byte)
+			8'h04: cmd_kana <= mk2;
+			8'h05: cmd_kkana <= mk2;
 			8'h06: req_joy <= 1'b1;
 			8'h19: cmt_st <= 2'd1;
 			8'h1a: cmt_st <= 2'd0;
