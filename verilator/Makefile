@@ -27,7 +27,7 @@ GEN_V = $(GEN)/t80s.v
 JT49_SRC = $(RTL)/jt49/jt49_bus.v $(RTL)/jt49/jt49.v $(RTL)/jt49/jt49_cen.v $(RTL)/jt49/jt49_div.v \
 	$(RTL)/jt49/jt49_eg.v $(RTL)/jt49/jt49_exp.v $(RTL)/jt49/jt49_noise.v
 
-V_SRC = sim.v $(RTL)/pc6001.sv $(RTL)/pc6001_vdg.sv $(RTL)/pc6001_sub.sv $(RTL)/tape_overlay.sv $(RTL)/pc6031.sv $(RTL)/upd765_lite.sv $(RTL)/d88_media.sv $(RTL)/upd7752.sv $(RTL)/i8255_m0.sv $(RTL)/touch_panel.sv $(RTL)/touch_mouse.sv $(RTL)/pc6001_composite.sv $(RTL)/composite_decoder.sv $(JT49_SRC) $(GEN_V)
+V_SRC = sim.v $(RTL)/pc6001.sv $(RTL)/pc6001_vdg.sv $(RTL)/pc6001_sub.sv $(RTL)/tape_overlay.sv $(RTL)/pc6031.sv $(RTL)/upd765_lite.sv $(RTL)/d88_media.sv $(RTL)/upd7752.sv $(RTL)/fdc66.sv $(RTL)/rom_store.sv $(RTL)/ddr_arb.sv $(RTL)/i8255_m0.sv $(RTL)/touch_panel.sv $(RTL)/touch_mouse.sv $(RTL)/pc6001_composite.sv $(RTL)/composite_decoder.sv $(JT49_SRC) $(GEN_V)
 V_INC = $(RTL)/pc6001_keytable.svh $(RTL)/pc6001_intfont.svh
 
 V_OPT = -O3 -I$(RTL) --x-assign fast --x-initial fast --noassert --savable \

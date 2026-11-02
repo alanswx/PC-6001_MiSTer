@@ -56,7 +56,7 @@ struct Options {
     std::string cart_file;                // --cart FILE: cartridge ROM through ioctl index 2
     std::string disk_rom;                 // DIR/DISK.ROM from --rom-dir: the PC-6031's firmware, at 5000h of boot.rom
     std::string rom_dir = "../rom";       // boot1.rom (the mkII's ROMs) is made from DIR/*.62
-    bool mk2 = false;                     // --mk2: OSD Model = PC-6001mkII
+    int model = 0;                        // OSD Model: --mk2 1 (PC-6001mkII), --p66 2 (PC-6601)
     std::string disk_file;                // --disk FILE: a .d88 mounted as S0
     std::string disk_out;                 // --disk-out FILE: the image as the drive left it, written at the end
     int         composite = -1;               // --composite N: OSD Video = Composite, B/W graphics on TV = N
@@ -82,7 +82,7 @@ static void usage()
 "  --stop-at-frame N      exit after frame N (default 60)\n"
 "  --quiet                no progress on stderr\n"
 "  --rom-dir DIR          DIR/BASICROM.60 and DIR/CGROM60.60 (default ../rom); --basic FILE / --cgrom FILE\n"
-"  --mk2                  OSD Model = PC-6001mkII (boot1.rom from DIR/*.62)\n"
+"  --mk2                  OSD Model = PC-6001mkII (boot1.rom from DIR/*.62); --p66 PC-6601 (boot2.rom, DIR/*.66)\n"
 "  --ram16k               16 KB RAM (C000-FFFF) instead of 32 KB\n"
 "  --cart FILE            load a cartridge ROM (OSD Cartridge); BASIC boots it\n"
 "  --composite N          the picture as a TV decodes it (rtl/pc6001_composite.sv); N, the black/white\n"
@@ -161,7 +161,8 @@ static bool parse_args(int argc, char **argv, Options &o)
         else if (a == "--trace-from") o.trace_from = parse_num(next());
         else if (a == "--trace-to") o.trace_to = parse_num(next());
         else if (a == "--rom-dir") { std::string d = next(); o.rom_dir = d; o.basic_rom = d + "/BASICROM.60"; o.cg_rom = d + "/CGROM60.60"; o.disk_rom = d + "/DISK.ROM"; }
-        else if (a == "--mk2") o.mk2 = true;
+        else if (a == "--mk2") o.model = 1;
+        else if (a == "--p66") o.model = 2;
         else if (a == "--no-disk-unit") o.disk_rom.clear();
         else if (a == "--disk") o.disk_file = next();
         else if (a == "--disk-out") o.disk_out = next();
@@ -362,29 +363,35 @@ bool Sim::load_rom()
     ioctl_load(0, d);
     if (!opt.quiet) fprintf(stderr, "[sim] boot.rom: '%s' + '%s'\n", opt.basic_rom.c_str(), opt.cg_rom.c_str());
 
-    // boot1.rom, as Main loads it at the core's start (ioctl_index 40h), only with --mk2 so that the PC-6001's
-    // runs keep their timing: the mkII's ROMs in MAME's order,
-    // BASICROM.62 (32 KB), VOICEROM.62 (16 KB) at 8000h, CGROM60.62 at C000h, CGROM60m.62 at E000h (8 KB each),
-    // KANJIROM.62 (32 KB) at 10000h
+    // boot1.rom (the mkII, ioctl_index 40h) and boot2.rom (the PC-6601, 80h), as Main loads them at the core's
+    // start, each only with its model so that the other models' runs keep their timing. MAME's order: BASICROM
+    // (32 KB), VOICEROM (16 KB) at 8000h, CGROM60 at C000h, CGROM60m / CGROM66 at E000h (8 KB each), KANJIROM
+    // (32 KB) at 10000h
     static const struct { const char *name; uint32_t at, size; } mk2[] = {
         { "BASICROM.62", 0x00000, 0x8000 }, { "VOICEROM.62", 0x08000, 0x4000 }, { "CGROM60.62", 0x0c000, 0x2000 },
         { "CGROM60m.62", 0x0e000, 0x2000 }, { "KANJIROM.62", 0x10000, 0x8000 } };
-    if (!opt.mk2) return true;
+    static const struct { const char *name; uint32_t at, size; } p66[] = {
+        { "BASICROM.66", 0x00000, 0x8000 }, { "VOICEROM.66", 0x08000, 0x4000 }, { "CGROM60.66", 0x0c000, 0x2000 },
+        { "CGROM66.66", 0x0e000, 0x2000 }, { "KANJIROM.66", 0x10000, 0x8000 } };
+    if (opt.model == 0) return true;
     std::vector<uint8_t> b1(0x18000, 0xFF);
     bool any = false;
-    for (auto &m : mk2) {
+    for (int i = 0; i < 5; i++) {
+        const char *name = opt.model == 2 ? p66[i].name : mk2[i].name;
+        uint32_t at = mk2[i].at, size = mk2[i].size;
         std::vector<uint8_t> f;
-        if (!read_file(opt.rom_dir + "/" + m.name, f)) {
-            fprintf(stderr, "warning: %s/%s not found (boot1.rom)\n", opt.rom_dir.c_str(), m.name);
+        if (!read_file(opt.rom_dir + "/" + name, f)) {
+            fprintf(stderr, "warning: %s/%s not found (boot%d.rom)\n", opt.rom_dir.c_str(), name, opt.model);
             continue;
         }
-        f.resize(m.size, 0xFF);
-        std::copy(f.begin(), f.end(), b1.begin() + m.at);
+        f.resize(size, 0xFF);
+        std::copy(f.begin(), f.end(), b1.begin() + at);
         any = true;
     }
     if (any) {
-        ioctl_load(0, b1, 0x40);
-        if (!opt.quiet) fprintf(stderr, "[sim] boot1.rom: the mkII's ROMs from '%s'\n", opt.rom_dir.c_str());
+        ioctl_load(0, b1, opt.model == 2 ? 0x80 : 0x40);
+        if (!opt.quiet) fprintf(stderr, "[sim] boot%d.rom: the %s's ROMs from '%s'\n", opt.model,
+                                opt.model == 2 ? "PC-6601" : "mkII", opt.rom_dir.c_str());
     }
     return true;
 }
@@ -612,7 +619,7 @@ int Sim::run()
     }
 
     top->ram16k = opt.ram16k;
-    top->mk2 = opt.mk2;
+    top->model = opt.model;
     top->tape_turbo = opt.tape_turbo;
     top->kbd_us = opt.kbd_us;
     top->composite = opt.composite >= 0;
@@ -630,7 +637,7 @@ int Sim::run()
     if (!opt.load_file.empty()) {
         if (!load_state()) return 2;
         top->ram16k = opt.ram16k;            // options are not part of the saved machine
-        top->mk2 = opt.mk2;
+        top->model = opt.model;
         top->tape_turbo = opt.tape_turbo;
         top->tape_overlay = opt.tape_overlay;
     } else {
@@ -668,7 +675,7 @@ int Sim::run()
         if (!fr) perror(opt.dump_ram.c_str());
         else {
             // the PC-6001's 32 KB at 8000h; the mkII's whole 64 KB
-            for (int i = opt.mk2 ? 0 : 0x8000; i < 0x10000; i++) { uint8_t v = top->rootp->top__DOT__pc6001__DOT__ram[i]; fwrite(&v, 1, 1, fr); }
+            for (int i = opt.model ? 0 : 0x8000; i < 0x10000; i++) { uint8_t v = top->rootp->top__DOT__pc6001__DOT__ram[i]; fwrite(&v, 1, 1, fr); }
             fclose(fr);
         }
     }

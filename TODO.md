@@ -19,10 +19,11 @@
 - Printer (port B / C0), RS-232C (80-81).
 
 ## Later models
+- PC-6601: check on a MiSTer; format (Write ID is not in PC6001VX either); booting disks; the external
+  PC-6031 port; 6601 software.
 - mkII (started 2026-10-31: memory map, mode 5, palette, mode menu): check on a MiSTer; tapes and cartridges
   made for the mkII; uPD7752 built-in phrases (F40-F44: PC6001VX plays WAV files, no data here); the joystick
   interrupt (INT2); composite for its colours; the PSG port A2 sync bits PC6001VX gives it.
-- PC-6601: internal uPD765 floppy.
 - SR: YM2203, SR video modes, programmable interrupt vectors (B8-BF, FA, FB).
 
 ## Last

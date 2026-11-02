@@ -52,12 +52,23 @@ module pc6031
 	output      [7:0] ddr_be,
 	output            ddr_we,
 
+	// the PC-6601's built-in drive (rtl/fdc66.sv) uses the image instead; the unit is then held in reset
+	input             ext_sel,
+	input      [19:0] ext_m_addr,
+	input             ext_m_rd,
+	input             ext_m_we,
+	input       [7:0] ext_m_d,
+	output      [7:0] ext_m_q,
+	output            ext_m_done,
+	output            ext_m_ready,
+	output            ext_m_wprot,
+
 	output            disk_ready,
 	output            disk_too_big,
 	output reg        motor
 );
 
-wire drv_reset = reset | ~rom_ok;
+wire drv_reset = reset | ~rom_ok | ext_sel;
 
 // 4 MHz from 28.636364 MHz
 reg [14:0] ce_acc = 0;
@@ -181,10 +192,10 @@ d88_media media
 	.sd_buff_dout(sd_buff_dout),
 	.sd_buff_din(sd_buff_din),
 	.sd_buff_wr(sd_buff_wr),
-	.addr(m_addr),
-	.rd(m_rd),
-	.we(m_we),
-	.d(m_d),
+	.addr(ext_sel ? ext_m_addr : m_addr),
+	.rd(ext_sel ? ext_m_rd : m_rd),
+	.we(ext_sel ? ext_m_we : m_we),
+	.d(ext_sel ? ext_m_d : m_d),
 	.q(m_q),
 	.done(m_done),
 	.ready(m_ready),
@@ -201,6 +212,10 @@ d88_media media
 	.ddr_we(ddr_we)
 );
 assign disk_ready = m_ready;
+assign ext_m_q = m_q;
+assign ext_m_done = m_done;
+assign ext_m_ready = m_ready;
+assign ext_m_wprot = m_wprot;
 
 // the two 8255s
 wire [7:0] h_pa, h_pb, h_pc, d_pa, d_pb, d_pc, h_dout, d_dout;

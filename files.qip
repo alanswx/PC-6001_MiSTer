@@ -21,6 +21,9 @@ set_global_assignment -name SYSTEMVERILOG_FILE rtl/pc6001_composite.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/composite_decoder.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/d88_media.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/upd7752.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/fdc66.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/rom_store.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/ddr_arb.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/upd765_lite.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/pc6031.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/pc6001.sv

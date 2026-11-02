@@ -1,18 +1,21 @@
-NEC PC-6001 for MiSTer - tester build 2026-10-31
+NEC PC-6001 for MiSTer - tester build 2026-11-02
 ================================================
 
 This is a work-in-progress core. It runs N60-BASIC, loads tapes, runs ROM
-cartridges and has the PC-6031 disk unit (one drive). New in this build: a
-first PC-6001mkII (Machine > Model, below). The SR models are not done yet.
+cartridges and has the PC-6031 disk unit (one drive). Machine > Model also
+has the PC-6001mkII and, new in this build, the PC-6601 with its built-in
+drive (below). The SR models are not done yet.
 
 Install
 -------
 Unzip this at the root of the SD card (/media/fat/). It puts:
-  _Computer/PC6001_20261031.rbf   the core
+  _Computer/PC6001_20261102.rbf   the core
   games/PC6001/boot.rom           BASICROM.60 + CGROM60.60 + DISK.ROM (22528 bytes;
                                   DISK.ROM is the disk unit's firmware)
   games/PC6001/boot1.rom          the mkII's ROMs: BASICROM.62 + VOICEROM.62 +
                                   CGROM60.62 + CGROM60m.62 + KANJIROM.62 (98304 bytes)
+  games/PC6001/boot2.rom          the PC-6601's: BASICROM.66 + VOICEROM.66 +
+                                  CGROM60.66 + CGROM66.66 + KANJIROM.66 (98304 bytes)
   games/PC6001/MAME/              tapes from the MAME software list
   games/PC6001/TOSEC/             tapes from the TOSEC set
   games/PC6001/Cartridges/        ROM cartridges
@@ -93,6 +96,15 @@ New and lightly tested: the menu, modes 1 and 5 run on a MiSTer; about 60 of
 chip's built-in phrases (F40.-F44.) are silent. Composite (TV) video is off
 on the mkII (it always shows RGB).
 mkII tapes and cartridges are welcome reports.
+
+PC-6601
+-------
+Machine > Model: PC-6601, then Apply and reset (the core need not be
+reloaded). It is a mkII with a built-in 1D drive: mount a .d88 with
+Disk drive 1, pick 5 (N66-BASIC) at the menu, and FILES / LOAD / SAVE use
+the built-in drive. The PC-6031 unit is not connected in this model.
+New: tested with BASIC files only; disk software for the 6601 is a welcome
+report.
 
 What to test / report
 ---------------------

@@ -320,6 +320,9 @@ set_global_assignment -name SYSTEMVERILOG_FILE rtl/tape_overlay.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/i8255_m0.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/d88_media.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/upd7752.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/fdc66.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/rom_store.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/ddr_arb.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/upd765_lite.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/pc6031.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/touch_panel.sv

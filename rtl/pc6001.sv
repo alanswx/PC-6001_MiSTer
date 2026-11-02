@@ -33,7 +33,7 @@ module pc6001 #(
 (
 	input             clk_sys,
 	input             reset,
-	input             mk2,             // OSD Model: the PC-6001mkII (boot1.rom), taken at reset
+	input       [1:0] model,           // OSD Model, taken at reset: 0 PC-6001, 1 PC-6001mkII (boot1.rom), 2 PC-6601 (boot2.rom)
 	input             ram16k,          // OSD: 16 KB RAM instead of 32 KB (PC-6001)
 	input             tape_turbo,      // OSD: TURBO x while the motor relay is on
 	input             tape_rewind,
@@ -53,6 +53,7 @@ module pc6001 #(
 	input             ioctl_wr,
 	input      [24:0] ioctl_addr,
 	input       [7:0] ioctl_dout,
+	output            ioctl_wait,      // the mkII's / PC-6601's ROMs going to DDR3 (rtl/rom_store.sv)
 
 	output            ce_pix,
 	output      [7:0] R,
@@ -113,6 +114,10 @@ module pc6001 #(
 	output      [7:0] dbg_io_data
 );
 
+// the mkII and the PC-6601 (a mkII with a built-in floppy drive, rtl/fdc66.sv)
+wire mk2 = model != 2'd0;
+wire p66 = model == 2'd2;
+
 //----------------------------------------------------------------------------
 // Clock enables
 //----------------------------------------------------------------------------
@@ -170,7 +175,9 @@ wire        busrq;
 // misses the first byte after the name. In turbo the Z80 is not stopped (the VDG has its own RAM port).
 reg         wait_n;
 
-wire cpu_reset = reset | (ioctl_download & (ioctl_index[5:0] == 6'd0 | ioctl_index[5:0] == 6'd2));
+wire reset_dl = reset | (ioctl_download & (ioctl_index[5:0] == 6'd0 | ioctl_index[5:0] == 6'd2));
+wire rs_busy;
+wire cpu_reset = reset_dl | rs_busy;   // and while the ROM store copies the model's ROMs
 
 `ifdef VERILATOR
 T80s cpu
@@ -246,15 +253,18 @@ always @(posedge clk_sys) begin
 end
 always @(posedge clk_sys) cg_cpu_q <= cg_rom[A[11:0]];
 
-// The mkII's ROMs (boot1.rom, in MAME's order): BASIC 00000h (32 KB), voice 08000h (16 KB), CGROM60 0C000h
-// and CGROM60m 0E000h (8 KB each), kanji 10000h (32 KB). Port A the download and the CPU, port B the VDG's font.
-wire        rom1_wr = ioctl_download && ioctl_wr && ioctl_index == 8'h40;
+// The mkII's or the PC-6601's ROMs (boot1.rom / boot2.rom, in MAME's order): BASIC 00000h (32 KB), voice
+// 08000h (16 KB), CGROM60 0C000h and CGROM60m / CGROM66 0E000h (8 KB each), kanji 10000h (32 KB), copied in
+// from DDR3 at each reset (rtl/rom_store.sv). Port A the copy and the CPU, port B the VDG's font.
+wire        rs_we;
+wire [16:0] rs_a;
+wire  [7:0] rs_d;
 reg   [7:0] rom62[0:98303];
 reg   [7:0] rom62_q, cg62_q;
 reg  [16:0] rom62_cpu;
-wire [16:0] rom62_a = rom1_wr ? ioctl_addr[16:0] : rom62_cpu;
+wire [16:0] rom62_a = rs_we ? rs_a : rom62_cpu;
 always @(posedge clk_sys) begin
-	if (rom1_wr && ioctl_addr[24:17] == 0 && ioctl_addr[16:15] != 2'b11) rom62[rom62_a] <= ioctl_dout;
+	if (rs_we) rom62[rom62_a] <= rs_d;
 	rom62_q <= rom62[rom62_a];
 end
 always @(posedge clk_sys) cg62_q <= rom62[{3'b011, cg_addr}];
@@ -385,7 +395,8 @@ always @(*) wait_n = ~(want_wait & ~waited);
 
 wire       sel_ppi = A[7:4] == 4'h9;
 wire       sel_psg = A[7:4] == 4'hA;
-wire       sel_b0  = A[7:4] == 4'hB;
+wire       sel_b0  = A[7:4] == 4'hB && !(p66 && A[3:0] != 4'h0);   // the PC-6601: B1h-B3h are the floppy's
+wire       sel_66  = p66 && (A[7:4] == 4'hD || A[7:0] == 8'hb1 || A[7:0] == 8'hb2 || A[7:0] == 8'hb3);
 wire       sel_c   = mk2 && A[7:2] == 6'b1100_00;   // C0-C3
 wire       sel_f   = mk2 && A[7:4] == 4'hF;         // F0-F8
 wire       sel_e   = mk2 && A[7:2] == 6'b1110_00;   // E0-E3: the uPD7752 (not there yet: idle)
@@ -626,7 +637,7 @@ assign audio = mk2 ? {2'b00, psg_sound, 4'd0} + 16'd16384 + {{2{voice[13]}}, voi
 // PC-6031 disk unit at D0h-D3h
 //----------------------------------------------------------------------------
 
-wire       sel_fdd = A[7:2] == 6'b1101_00;
+wire       sel_fdd = A[7:2] == 6'b1101_00 && !p66;
 wire [7:0] fdd_dout;
 // DISK.ROM is 5000h-57FFh of the ROM download (after BASICROM.60 and CGROM60.60); a 20 KB boot.rom has no unit
 reg        disk_rom_ok = 0;
@@ -660,18 +671,95 @@ pc6031 fdd
 	.sd_buff_dout(sd_buff_dout),
 	.sd_buff_din(sd_buff_din),
 	.sd_buff_wr(sd_buff_wr),
-	.ddr_busy(ddr_busy),
-	.ddr_burstcnt(ddr_burstcnt),
-	.ddr_addr(ddr_addr),
+	.ddr_busy(da_busy),
+	.ddr_burstcnt(),
+	.ddr_addr(da_addr),
 	.ddr_dout(ddr_dout),
-	.ddr_dout_ready(ddr_dout_ready),
-	.ddr_rd(ddr_rd),
-	.ddr_din(ddr_din),
-	.ddr_be(ddr_be),
-	.ddr_we(ddr_we),
+	.ddr_dout_ready(da_dout_ready),
+	.ddr_rd(da_rd),
+	.ddr_din(da_din),
+	.ddr_be(da_be),
+	.ddr_we(da_we),
+	.ext_sel(p66),
+	.ext_m_addr(m66_addr),
+	.ext_m_rd(m66_rd),
+	.ext_m_we(m66_we),
+	.ext_m_d(m66_d),
+	.ext_m_q(m66_q),
+	.ext_m_done(m66_done),
+	.ext_m_ready(m66_ready),
+	.ext_m_wprot(m66_wprot),
 	.disk_ready(disk_ready),
 	.disk_too_big(disk_too_big),
 	.motor(disk_motor)
+);
+
+// DDR3: the disk image (client a) and the ROM store (client b)
+wire        da_busy, da_dout_ready, da_rd, da_we, db_busy, db_dout_ready, db_rd, db_we;
+wire [28:0] da_addr, db_addr;
+wire [63:0] da_din, db_din;
+wire  [7:0] da_be, db_be;
+assign ddr_burstcnt = 8'd1;
+ddr_arb ddr_arb
+(
+	.clk(clk_sys),
+	.a_rd(da_rd), .a_we(da_we), .a_addr(da_addr), .a_din(da_din), .a_be(da_be), .a_busy(da_busy),
+	.a_dout_ready(da_dout_ready),
+	.b_rd(db_rd), .b_we(db_we), .b_addr(db_addr), .b_din(db_din), .b_be(db_be), .b_busy(db_busy),
+	.b_dout_ready(db_dout_ready),
+	.ddr_busy(ddr_busy), .ddr_dout_ready(ddr_dout_ready),
+	.ddr_rd(ddr_rd), .ddr_we(ddr_we), .ddr_addr(ddr_addr), .ddr_din(ddr_din), .ddr_be(ddr_be)
+);
+
+rom_store rom_store
+(
+	.clk(clk_sys),
+	.reset(reset_dl),
+	.model(model),
+	.ioctl_download(ioctl_download),
+	.ioctl_index(ioctl_index),
+	.ioctl_wr(ioctl_wr),
+	.ioctl_addr(ioctl_addr),
+	.ioctl_dout(ioctl_dout),
+	.ioctl_wait(ioctl_wait),
+	.busy(rs_busy),
+	.rom_a(rs_a),
+	.rom_d(rs_d),
+	.rom_we(rs_we),
+	.ddr_busy(db_busy),
+	.ddr_burstcnt(),
+	.ddr_addr(db_addr),
+	.ddr_dout(ddr_dout),
+	.ddr_dout_ready(db_dout_ready),
+	.ddr_rd(db_rd),
+	.ddr_din(db_din),
+	.ddr_be(db_be),
+	.ddr_we(db_we)
+);
+
+// the PC-6601's built-in drive, on the same disk image
+wire [19:0] m66_addr;
+wire  [7:0] m66_d, m66_q, fdc66_dout;
+wire        m66_rd, m66_we, m66_done, m66_ready, m66_wprot;
+fdc66 fdc66
+(
+	.clk(clk_sys),
+	.reset(cpu_reset | ~p66),
+	.addr(A),
+	.sel(sel_66),
+	.rd(io_rd & sel_66),
+	.rd_lvl(io_cyc & ~rd_n & sel_66),
+	.wr(io_wr & sel_66),
+	.din(cpu_dout),
+	.dout(fdc66_dout),
+	.m_addr(m66_addr),
+	.m_rd(m66_rd),
+	.m_q(m66_q),
+	.m_done(m66_done),
+	.m_we(m66_we),
+	.m_d(m66_d),
+	.m_ready(m66_ready),
+	.m_wprot(m66_wprot)
 );
 
 reg [7:0] io_dout;
@@ -688,6 +776,7 @@ always @(*) begin
 	endcase
 	else if (sel_c && A[1:0] == 2'd2) io_dout = {6'b111111, kj_lr, kj_rom};
 	else if (sel_e) io_dout = voice_dout;
+	else if (sel_66) io_dout = fdc66_dout;
 	else if (sel_ppi) io_dout = ppi_dout;
 	else if (sel_fdd) io_dout = fdd_dout;
 	else if (sel_psg && A[1:0] == 2'd2) io_dout = psg_dout;

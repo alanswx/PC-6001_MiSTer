@@ -59,7 +59,7 @@ assign VIDEO_ARY = (!ar) ? 12'd3 : 12'd0;
 // act at once.
 // Status bits: 0 reset, 1 memory, 2 unused (old Fast tape), 3 rewind tape, 4 tape speed, 5 tape overlay,
 // 6 swap Alt/Win keys, 7 remove cartridge, 8 keyboard, 9 touch panel, 10 video, 11-13 B/W colours (the black/white
-// graphics mode on a TV), 14 model, 121-122 aspect ratio.
+// graphics mode on a TV), 14-15 model, 121-122 aspect ratio.
 `include "build_id.v"
 // Tape turbo factor: the Z80 and the tape run TURBO times as fast while the motor relay is on (rtl/pc6001.sv)
 localparam int TURBO = 7;
@@ -83,7 +83,7 @@ localparam CONF_STR = {
 	"h0-,Changes pending;",
 	"R[0],Apply and reset;",
 
-	"P1O[14],Model,PC-6001,PC-6001mkII;",
+	"P1O[15:14],Model,PC-6001,PC-6001mkII,PC-6601;",
 	"P1-;",
 	"P1O[4],Tape speed,", 8'h30 + 8'(TURBO), "x,Normal;",
 	"P1-;",
@@ -116,6 +116,7 @@ wire  [24:0] ps2_mouse;
 
 wire         ioctl_download;
 wire   [7:0] ioctl_index;
+wire         ioctl_wait;   // rtl/rom_store.sv
 wire         ioctl_wr;
 wire  [26:0] ioctl_addr;
 wire   [7:0] ioctl_dout;
@@ -152,7 +153,7 @@ hps_io #(.CONF_STR(CONF_STR), .VDNUM(1)) hps_io
 	.ioctl_wr(ioctl_wr),
 	.ioctl_addr(ioctl_addr),
 	.ioctl_dout(ioctl_dout),
-	.ioctl_wait(1'b0),
+	.ioctl_wait(ioctl_wait),
 
 	.img_mounted(img_mounted),
 	.img_readonly(img_readonly),
@@ -187,7 +188,7 @@ wire reset = RESET | status[0] | buttons[1] | status[7] |
 // Load ROM, a core reload)
 reg [127:0] cfg;
 always @(posedge clk_sys) if (reset) cfg <= status;
-wire osd_pending = {status[14], status[1], status[122:121]} != {cfg[14], cfg[1], cfg[122:121]};
+wire osd_pending = {status[15:14], status[1], status[122:121]} != {cfg[15:14], cfg[1], cfg[122:121]};
 
 // Swap Alt/Win keys (acts at once): the Win keys become GRAPH and the Alt keys nothing
 wire [8:0] key_code = ps2_key_raw[8:0];
@@ -234,7 +235,7 @@ pc6001 #(.TURBO(TURBO)) pc6001
 (
 	.clk_sys(clk_sys),
 	.reset(reset),
-	.mk2(cfg[14]),         // its ROMs are boot1.rom
+	.model(cfg[15:14]),    // the mkII's ROMs are boot1.rom, the PC-6601's boot2.rom
 	.ram16k(cfg[1]),
 	.tape_turbo(~status[4]),
 	.tape_rewind(status[3]),
@@ -254,6 +255,7 @@ pc6001 #(.TURBO(TURBO)) pc6001
 	.ioctl_wr(ioctl_wr),
 	.ioctl_addr(ioctl_addr[24:0]),
 	.ioctl_dout(ioctl_dout),
+	.ioctl_wait(ioctl_wait),
 
 	.ce_pix(rgb_pix),
 	.R(rgb_r), .G(rgb_g), .B(rgb_b),
@@ -361,7 +363,7 @@ pc6001_composite pc6001_composite
 	.hs(c_hs), .vs(c_vs), .hb(c_hb), .vb(c_vb)
 );
 
-wire       composite = status[10] & ~cfg[14];   // the PC-6001's colours only, for now
+wire       composite = status[10] & cfg[15:14] == 2'd0;   // the PC-6001's colours only, for now
 wire       ce_pix = composite ? c_pix : rgb_pix;
 wire       HBlank = composite ? c_hb : rgb_hb;
 wire       VBlank = composite ? c_vb : rgb_vb;

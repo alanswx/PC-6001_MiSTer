@@ -1,7 +1,7 @@
 # NEC PC-6001 for MiSTer
 
-Work in progress: a MiSTer core for the NEC PC-6001 (1981) and the PC-6001mkII (1983), with the PC-6601 and SR
-models as later goals.
+Work in progress: a MiSTer core for the NEC PC-6001 (1981), the PC-6001mkII (1983) and the PC-6601 (1983), with
+the SR models as a later goal.
 
 ## Status
 
@@ -19,7 +19,8 @@ models as later goals.
 | Touch panel on joystick port 2, worked by the mouse | done: draws in the simulator; on a MiSTer the cursor and taps work (drags not tried yet: the KVM used for testing cannot hold a button). The protocol is from the Touch Panel cartridge's code; no emulator has it |
 | Printer, RS-232C, Senshi no Cartridge (banked) | not yet |
 | PC-6001mkII (Machine > Model): 64 KB RAM, the F0-F3 memory map, the mode menu, modes 1-4 in its colours, mode 5 (N60m: 40x20 text, 320x200 and 160x200 graphics), 16-colour palette, kanji ROM | in progress: the mode menu, N60 BASIC and N60m-BASIC match MAME; mkII tapes such as Chack'n Pop run; TALK speaks (uPD7752, below); Composite (TV) is for the PC-6001 only |
-| 6601 / SR | not yet |
+| PC-6601 (Machine > Model): the mkII with a built-in floppy drive (a uPD765 the Z80 drives, a 1 KB buffer at D0h-D3h) and N66-BASIC | in progress: the menu and N66-BASIC's disk commands (FILES, LOAD, SAVE) work in the simulator |
+| SR models | not yet (no SYSTEMROM dumps here) |
 
 It boots N60-BASIC to "How Many Pages?", takes keyboard input, runs BASIC (including SCREEN 3/4 graphics) and
 loads tapes and disks, in the Verilator simulation and on a MiSTer. The Quartus build fits (30% ALMs, 76% of the
@@ -36,7 +37,7 @@ The menu follows the MiSTer computer-core OSD and tape standards:
 | Tape | top | a .p6 / .cas / .p6t image (up to 64 KB), rewound at each load; not remembered. A .p6t plays its byte image; its gaps are skipped |
 | Load ROM | top | another boot.rom for this session; resets the machine |
 | Memory | top | 32 KB or 16 KB (the PC-6001; the mkII has 64 KB) |
-| Model | Machine | PC-6001 (default) or PC-6001mkII (its ROMs in boot1.rom, below) |
+| Model | Machine | PC-6001 (default), PC-6001mkII (its ROMs in boot1.rom, below) or PC-6601 (boot2.rom) |
 | Tape speed | Machine | 7x (default) or Normal; taken when the motor starts |
 | Remove cartridge | Machine | button: takes the cartridge out and resets to BASIC |
 | Rewind tape | Machine | button |
@@ -83,8 +84,16 @@ For the PC-6001mkII, `boot1.rom` (96 KB) in the same folder, in MAME's order: `B
 cat BASICROM.62 VOICEROM.62 CGROM60.62 CGROM60m.62 KANJIROM.62 > boot1.rom
 ```
 
-Main loads both at the core's start; Machine > Model picks which one runs. The disk unit's DISK.ROM stays in
-boot.rom and serves both.
+For the PC-6601, `boot2.rom` in the same order: `BASICROM.66`, `VOICEROM.66`, `CGROM60.66`, `CGROM66.66`,
+`KANJIROM.66` (96 KB):
+
+```
+cat BASICROM.66 VOICEROM.66 CGROM60.66 CGROM66.66 KANJIROM.66 > boot2.rom
+```
+
+Main loads all of them at the core's start; Machine > Model picks which one runs. boot1.rom and boot2.rom are
+kept in DDR3 and the model's set is copied into the core at each reset (rtl/rom_store.sv), so the model can
+change without reloading the core. The PC-6031's DISK.ROM stays in boot.rom.
 
 The sub CPU's 8049 ROM is not needed: the only public dump is bad (MAME marks it BAD_DUMP, and 60% of its
 bytes equal their own address), so the core implements the sub CPU's behaviour, as MAME, PC6001V, PC6001VX and
@@ -152,6 +161,16 @@ noise bits it gives the C engine's samples exactly (13800 of 13800 for `TALK"F2 
 reads its phonemes from VOICEROM.62 and sends them as external frames, so TALK with romaji works; the string
 ends with "." or "?", and N60m-BASIC takes F2-F6 (not F1). The chip's built-in phrases (`TALK"F40."` to
 `"F44."`, commands 0-4) are recordings PC6001VX plays from WAV files, so here they are silent.
+
+## PC-6601
+
+Machine > Model = PC-6601 is the mkII with a built-in floppy drive. Its menu offers N66-BASIC as mode 5, with
+disk commands. The drive (rtl/fdc66.sv, after PC6001VX's DSK66) is a uPD765 the Z80 drives at DCh / DDh, and a
+1 KB buffer at D0h-D3h that the CPU copies sectors in and out of with INIR / OTIR (the buffer address is the
+port's low bits and the B register); DAh sets how many bytes a read or write moves. It uses the Disk slot's
+image (1D, as the PC-6031's), so the same .d88 works on both. In the simulator N66-BASIC finds the drive, and
+FILES, LOAD, SAVE and the write-back to the image work. The external PC-6031 port (B1h b2) reads as nothing
+connected.
 
 ## Composite video
 

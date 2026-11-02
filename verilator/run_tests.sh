@@ -40,6 +40,8 @@ run composite_boot 300 --composite 0
 run mk2_menu 300 --mk2
 run mk2_mode1 800 --mk2 --no-disk-unit --type '300:1{WAIT100}\n'
 run mk2_mode5 900 --mk2 --no-disk-unit --type '300:5{WAIT100}\n{WAIT100}\n'
+# PC-6601 (--p66: boot2.rom from ../rom/*.66): the mode menu, through the ROM store (rtl/rom_store.sv, DDR3)
+run p66_menu 300 --p66
 # the uPD7752 (rtl/upd7752.sv): TALK speaks "geimu o-ba-" (external frames, the voice ROM's code) and returns Ok
 run mk2_talk 900 --mk2 --no-disk-unit --type '300:5{WAIT100}\n{WAIT100}\nTALK"F2 GEIMUO-BA-."\n'
 if [ "${TAPES:-0}" = 1 ]; then
@@ -73,6 +75,9 @@ if [ "${TAPES:-0}" = 1 ]; then
 	# mkII mode 5 160x200 in 16 colours (SCREEN 3, C1 = 09h): bars of colours 1-16, 10 dots each
 	m=(--type '300:5{WAIT100}\n{WAIT60}\n10 SCREEN 3,2,2:CLS\n{WAIT20}20 FOR I=0 TO 15:LINE(I*10,0)-(I*10+9,99),I+1,BF:NEXT\n{WAIT20}30 GOTO 30\n{WAIT20}RUN\n')
 	run mk2_screen3 3300 --mk2 --no-disk-unit "${m[@]}"
+	# the PC-6601's built-in drive (rtl/fdc66.sv): N66-BASIC lists and loads TEST from the PC-6031 test disk
+	run p66_disk 1700 --p66 --disk tests/disk/test.d88 \
+		--type '320:5{WAIT100}\n{WAIT100}\n{WAIT100}\n{WAIT60}FILES\n{WAIT150}LOAD"TEST"\n{WAIT250}LIST 10-30\n'
 	# a mkII game: Chack'n Pop (mode 5, 1 page; Neo Kobe set) loads at 7x and shows its title screen
 	CP="../refs/software/pc6001/neokobe_full_unzipped/NEC PC-6001/Chack'n Pop (Carry lab)/Chack'n Pop [CT]/Chack'n Pop {m5p1}.cas"
 	run mk2_chackpop 5100 --mk2 --no-disk-unit --tape "$CP" --tape-turbo --type '300:5{WAIT100}1\n{WAIT80}CLOAD\n' \

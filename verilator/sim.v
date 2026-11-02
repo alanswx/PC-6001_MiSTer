@@ -10,7 +10,7 @@ module top #(
    input         clk_sys /*verilator public_flat*/,
    input         reset /*verilator public_flat*/,
    input         ram16k,
-   input         mk2,              // OSD Model: PC-6001mkII
+   input   [1:0] model,            // OSD Model: 0 PC-6001, 1 PC-6001mkII, 2 PC-6601
    input         tape_turbo,
    input         tape_overlay,
    input         tape_rewind,
@@ -83,7 +83,6 @@ wire [7:0] tp_y = touch_mouse_on ? m_y : touch_y;
 wire       tp_pen = touch_mouse_on ? m_pen : touch_pen;
 
 
-assign ioctl_wait = 1'b0;
 
 wire [15:0] audio;
 assign AUDIO_L = audio;
@@ -101,7 +100,8 @@ pc6001 #(.TURBO(TURBO)) pc6001
 (
    .clk_sys(clk_sys),
    .reset(reset),
-   .mk2(mk2),
+   .model(model),
+   .ioctl_wait(ioctl_wait),
    .ram16k(ram16k),
    .tape_turbo(tape_turbo),
    .tape_rewind(tape_rewind),
@@ -196,9 +196,9 @@ wire [63:0] ddr_din;
 wire  [7:0] ddr_be;
 reg  [63:0] ddr_dout;
 reg         ddr_dout_ready = 0;
-reg  [63:0] ddr_mem[0:65535];
+reg  [63:0] ddr_mem[0:262143];   // 2 MB: the disk image at 0, the ROM store at 20000h words
 reg   [3:0] ddr_lat = 0;
-reg  [15:0] ddr_ra;
+reg  [17:0] ddr_ra;
 reg   [7:0] ddr_lfsr = 8'h5a;
 wire        ddr_busy = ddr_lfsr[0] & ddr_lfsr[3] | ddr_lat != 0;
 always @(posedge clk_sys) begin
@@ -209,10 +209,10 @@ always @(posedge clk_sys) begin
       if (ddr_lat == 1) begin ddr_dout <= ddr_mem[ddr_ra]; ddr_dout_ready <= 1; end
    end
    else if (!ddr_busy) begin
-      if (ddr_rd) begin ddr_ra <= ddr_addr[15:0]; ddr_lat <= 4'd10; end
+      if (ddr_rd) begin ddr_ra <= ddr_addr[17:0]; ddr_lat <= 4'd10; end
       if (ddr_we) begin : wr
          integer i;
-         for (i = 0; i < 8; i = i + 1) if (ddr_be[i]) ddr_mem[ddr_addr[15:0]][i*8 +: 8] <= ddr_din[i*8 +: 8];
+         for (i = 0; i < 8; i = i + 1) if (ddr_be[i]) ddr_mem[ddr_addr[17:0]][i*8 +: 8] <= ddr_din[i*8 +: 8];
       end
    end
 end

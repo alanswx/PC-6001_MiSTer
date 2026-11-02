@@ -23,6 +23,10 @@ module upd765_lite
 	output      [7:0] dout,
 	input             tc,             // one clk
 	output            int_o,
+	output            exec,           // the execution phase (a transfer engine moves the bytes: rtl/fdc66.sv)
+	output            drq_o,          // in it: a data byte is wanted / waiting
+	output      [7:0] msr_o,          // the main status register
+	output            res_int,        // a result is waiting, or a seek ended: the interrupt without the data requests
 
 	output reg [19:0] m_addr,
 	output reg        m_rd,           // one clk; m_q holds the byte at m_done
@@ -46,7 +50,7 @@ reg  [7:0] cmd[0:8];
 reg  [3:0] ncmd, cmd_len;
 reg  [7:0] res[0:6];
 reg  [2:0] nres, res_len;
-reg        res_int;                // INT at the start of a result phase (read / write / ID / format)
+reg        res_int_r;              // INT at the start of a result phase (read / write / ID / format)
 
 reg  [5:0] pcn;                    // drive 0's cylinder
 reg        seek_pend;
@@ -105,12 +109,16 @@ wire dio = phase == P_RES || (phase == P_EXEC && is_read);
 wire [7:0] msr = {rqm, dio, phase == P_EXEC, phase != P_CMD || ncmd != 0, 3'b000, seeking};
 
 assign dout = a0 ? (phase == P_RES ? res[nres] : dbuf) : msr;
-assign int_o = (phase == P_EXEC && drq) || res_int || seek_pend;
+assign int_o = (phase == P_EXEC && drq) || res_int_r || seek_pend;
+assign exec = phase == P_EXEC;
+assign drq_o = drq;
+assign msr_o = msr;
+assign res_int = res_int_r || seek_pend;
 
 task automatic result7(input [7:0] s0, input [7:0] s1, input [7:0] s2, input [7:0] c, input [7:0] h,
                        input [7:0] r, input [7:0] n);
 	res[0] <= s0; res[1] <= s1; res[2] <= s2; res[3] <= c; res[4] <= h; res[5] <= r; res[6] <= n;
-	res_len <= 3'd7; nres <= 0; res_int <= 1'b1;
+	res_len <= 3'd7; nres <= 0; res_int_r <= 1'b1;
 	phase <= P_RES;
 endtask
 
@@ -122,7 +130,7 @@ always @(posedge clk) begin
 		m_pend <= 0;
 		phase <= P_CMD;
 		ncmd <= 0;
-		res_int <= 0;
+		res_int_r <= 0;
 		pcn <= 0;
 		seek_pend <= 0;
 		seeking <= 0;
@@ -154,7 +162,7 @@ always @(posedge clk) begin
 
 		P_RES:
 			if (rd && a0) begin
-				res_int <= 0;
+				res_int_r <= 0;
 				if (nres + 1'd1 == res_len) begin nres <= 0; phase <= P_CMD; end
 				else nres <= nres + 1'd1;
 			end
