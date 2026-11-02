@@ -229,4 +229,12 @@ always @(posedge clk_sys) begin
 end
 `endif
 
+
+`ifdef TAPE_TRACE
+// make EXTRA=-DTAPE_TRACE: tape bytes the sub CPU drops because the Z80 has not taken the one before
+always @(posedge clk_sys)
+   if (pc6001.sub.tape_strobe && pc6001.sub.cmt_st == 2'd1 && pc6001.sub.req_cmtr)
+      $display("tape drop frame-cycle %0d", $time);
+`endif
+
 endmodule

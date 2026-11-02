@@ -138,7 +138,9 @@ kanji or voice ROM as port C2 selects, the cartridge, RAM), F2 where each 16 KB 
 interrupt masks, F4 the sub CPU's vector, F6 the timer (2048 x (F6+1) Z80 states), F8 where the CG ROM appears.
 The mkII draws modes 1-4 in its own colours (white text on black, a black border), and port C1 switches to the
 N60m screens: 40x20 text in 16 colours, 320x200 in 4 and 160x200 in 16. MAME draws mode 5 text in 12-line rows
-over 240 lines; the core uses 10-line rows over 200, as PC6001VX and CSCP do.
+over 240 lines; the core uses 10-line rows over 200, as PC6001VX and CSCP do. The display holds the Z80 off for
+336 dots of each mode 5 line, not the 368 both emulators give: with 368, tapes load wrongly at Normal speed
+and Jelda crashes (docs/CASSETTE_STATUS.md).
 
 Checked against MAME in the simulator: the menu, mode 1 ("7100 Bytes free") and mode 5 ("N60m-BASIC Ver.1.7,
 12436 Bytes free") match. Not done yet: the joystick interrupt, and composite video for the mkII's colours.

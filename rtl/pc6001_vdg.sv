@@ -73,7 +73,12 @@ localparam V_VIS     = 240;
 localparam VS_START  = 250, VS_END = 253;
 localparam H5_ACTIVE0 = 8;        // mode 5
 localparam V5_ACTIVE0 = 20;
-localparam H_BUSRQ_MK2 = 304, H5_BUSRQ = 368;   // PC6001VX: 304 / 368 of 456 dots
+// The Z80 is held off for H_BUSRQ_MK2 (modes 1-4) / H5_BUSRQ (mode 5) dots of each active line. PC6001VX and
+// CSCP give 304 and 368 of 456. With 368, mode 5 software that runs at 1x on a real mkII fails here: tapes
+// load at Normal with BASIC's pointers a byte off (Chack'n Pop: ?SN Error at RUN), and Jelda crashes once
+// running. 336 and 352 both work (PC6001VX boosts tape loading by default, so its 1x path is not exercised);
+// 336 keeps a margin below where it fails.
+localparam H_BUSRQ_MK2 = 304, H5_BUSRQ = 336;
 
 reg [8:0] h;   // 0..454
 reg [8:0] v;   // 0..261
