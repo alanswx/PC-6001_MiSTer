@@ -18,14 +18,15 @@ PC-6001mkIISR (1984).
 | PC-6031 disk unit (one drive, .d88): its own Z80 running DISK.ROM, 16 KB RAM, a uPD765, the 8255 pair at D0h | done: N60 Extended BASIC formats, saves, lists and loads, in the simulator and on a MiSTer (below) |
 | Touch panel on joystick port 2, worked by the mouse | done: draws in the simulator; on a MiSTer the cursor and taps work (drags not tried yet: the KVM used for testing cannot hold a button). The protocol is from the Touch Panel cartridge's code; no emulator has it |
 | Printer, RS-232C, Senshi no Cartridge (banked) | not yet |
-| PC-6001mkII (Machine > Model): 64 KB RAM, the F0-F3 memory map, the mode menu, modes 1-4 in its colours, mode 5 (N60m: 40x20 text, 320x200 and 160x200 graphics), 16-colour palette, kanji ROM | in progress: the mode menu, N60 BASIC and N60m-BASIC match MAME; mkII tapes such as Chack'n Pop run; TALK speaks (uPD7752, below); Composite (TV) is for the PC-6001 only |
-| PC-6601 (Machine > Model): the mkII with a built-in floppy drive (a uPD765 the Z80 drives, a 1 KB buffer at D0h-D3h) and N66-BASIC | in progress: the menu and N66-BASIC's disk commands (FILES, LOAD, SAVE) work in the simulator |
-| PC-6001mkIISR (Machine > Model): the SR mode's 8 KB memory map, 40/80-column text, 320x200x16 and 640x200x4 bitmaps, palette, its interrupt controller (VRTC), YM2203 (jt03), 3.58 MHz Z80 | in progress: the menu and N66SR-BASIC run in the simulator (below) |
-| PC-6601SR | not yet (only the SR's ROMs are here) |
+| PC-6001mkII (Machine > Model): 64 KB RAM, the F0-F3 memory map, the mode menu, modes 1-4 in its colours, mode 5 (N60m: 40x20 text, 320x200 and 160x200 graphics), 16-colour palette, kanji ROM | beta: the mode menu, N60 BASIC and N60m-BASIC match MAME and run on a MiSTer; 61 of 110 mode 5 tapes reach their title in the simulator, Chack'n Pop among them; TALK speaks (uPD7752, below); Composite (TV) is for the PC-6001 only |
+| PC-6601 (Machine > Model): the mkII with a built-in floppy drive (a uPD765 the Z80 drives, a 1 KB buffer at D0h-D3h) and N66-BASIC | beta: the menu and N66-BASIC's disk commands (FILES, LOAD, SAVE) work in the simulator and on a MiSTer; no 6601 disk software tried yet |
+| PC-6001mkIISR (Machine > Model): the SR mode's 8 KB memory map, 40/80-column text, 320x200x16 and 640x200x4 bitmaps, palette, its interrupt controller (VRTC), YM2203 (jt03), 3.58 MHz Z80 | beta: the menu and N66SR-BASIC run in the simulator and on a MiSTer; SR graphics, dot scroll (ROLL) and PLAY on FM and SSG work in the simulator; FM not yet heard on a MiSTer (below) |
+| PC-6601SR | not possible: only homebrew replacements for its ROMs (SYSTEMROM*.68) exist |
 
 It boots N60-BASIC to "How Many Pages?", takes keyboard input, runs BASIC (including SCREEN 3/4 graphics) and
-loads tapes and disks, in the Verilator simulation and on a MiSTer. The Quartus build fits (30% ALMs, 76% of the
-block RAMs, timing met).
+loads tapes and disks, in the Verilator simulation and on a MiSTer. The Quartus build fits (43% ALMs, 404 of 553
+block RAMs, worst setup slack 0.299 ns), and the 28 simulator tests in `verilator/run_tests.sh` pass. The current
+build is `releases/PC6001_20261103.rbf`.
 
 ## OSD
 
@@ -197,7 +198,8 @@ as MAME's driver does not run N66SR-BASIC:
 
 On the MiSTer and in the simulator the menu appears and N66SR-BASIC starts; SCREEN 2,2,2 with LINE, ROLL and PLAY
 work (BASIC's colours are 1-16, 1 and 9 black). The menu's colours follow PC6001VX's palette (MAME's driver
-ignores ports 40h-43h). Not done: the 6601SR (its ROMs are not here), the 8251 serial port, the voice interrupt.
+ignores ports 40h-43h). Not done: the 8251 serial port, the voice interrupt. The 6601SR cannot be done: only homebrew replacements for its
+ROMs exist.
 
 ## Composite video
 
