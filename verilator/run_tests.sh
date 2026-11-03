@@ -44,6 +44,10 @@ run mk2_mode5 900 --mk2 --no-disk-unit --type '300:5{WAIT100}\n{WAIT100}\n'
 run p66_menu 300 --p66
 # the uPD7752 (rtl/upd7752.sv): TALK speaks "geimu o-ba-" (external frames, the voice ROM's code) and returns Ok
 run mk2_talk 900 --mk2 --no-disk-unit --type '300:5{WAIT100}\n{WAIT100}\nTALK"F2 GEIMUO-BA-."\n'
+# PC-6001mkIISR (--sr: boot3.rom from ../rom/SYSTEMROM1.64, SYSTEMROM2.64, CGROM68.64): its menu in the SR mode,
+# and N66SR-BASIC (80 columns)
+run sr_menu 300 --sr --no-disk-unit
+run sr_basic 700 --sr --no-disk-unit --type '300:6' --type '500:PRINT "HELLO SR"\n'
 if [ "${TAPES:-0}" = 1 ]; then
 	run tape_lights_proto 1500 --tape "../refs/software/pc6001/cas/Lights_Out_Hiroshi_Ishioka_/Lights Out (BASIC prototype) {m1p1}.cas" \
 		--type '155:1\n{WAIT30}CLOAD\n' --type '1250:LIST\n'

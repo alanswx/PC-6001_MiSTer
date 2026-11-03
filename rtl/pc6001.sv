@@ -33,7 +33,8 @@ module pc6001 #(
 (
 	input             clk_sys,
 	input             reset,
-	input       [1:0] model,           // OSD Model, taken at reset: 0 PC-6001, 1 PC-6001mkII (boot1.rom), 2 PC-6601 (boot2.rom)
+	input       [1:0] model,           // OSD Model, taken at reset: 0 PC-6001, 1 PC-6001mkII (boot1.rom), 2 PC-6601 (boot2.rom),
+	                                   // 3 PC-6001mkIISR (boot3.rom)
 	input             ram16k,          // OSD: 16 KB RAM instead of 32 KB (PC-6001)
 	input             tape_turbo,      // OSD: TURBO x while the motor relay is on
 	input             tape_rewind,
@@ -114,9 +115,12 @@ module pc6001 #(
 	output      [7:0] dbg_io_data
 );
 
-// the mkII and the PC-6601 (a mkII with a built-in floppy drive, rtl/fdc66.sv)
+// the mkII and the PC-6601 (a mkII with a built-in floppy drive, rtl/fdc66.sv); the mkIISR runs the mkII's
+// BASICs too (with C8h b0 = 1) and adds its own mode (sr_mode)
 wire mk2 = model != 2'd0;
 wire p66 = model == 2'd2;
+wire sr  = model == 2'd3;
+wire sr_mode;
 
 //----------------------------------------------------------------------------
 // Clock enables
@@ -124,13 +128,16 @@ wire p66 = model == 2'd2;
 
 reg [1:0] ph = 0;
 always @(posedge clk_sys) ph <= ph + 1'd1;
-assign ce_pix = ph == 2'd3;
+// the mkIISR's 640-dot screens: dots at 14.32 MHz (the others' dots twice each)
+assign ce_pix = sr ? ph[0] : ph == 2'd3;
 
 // 3.9936 MHz from 28.636364 MHz: 39936 / 286364; TURBO times that during tape turbo. 7.17x would be an enable
 // on every clock; above 3x some enables fall on consecutive clocks, which the memories allow (a Z80 memory or
 // I/O access spans at least three T-states, and BRAM data follows the address one clock later).
+// The mkIISR's Z80 runs at 3.58 MHz (PC6001VX CPUM_CLOCK64).
 localparam [18:0] CPU_TURBO_STEP = 19'(39936 * TURBO);
-wire [18:0] cpu_step = tape_turbo_on ? CPU_TURBO_STEP : 19'd39936;
+localparam [18:0] SR_TURBO_STEP = 19'(35795 * TURBO);
+wire [18:0] cpu_step = tape_turbo_on ? (sr ? SR_TURBO_STEP : CPU_TURBO_STEP) : sr ? 19'd35795 : 19'd39936;
 reg  [18:0] cpu_acc = 0;
 reg         ce_cpu = 0;
 // 20 bits: at 7x the sum reaches 286363 + 279552, past 19 bits
@@ -145,7 +152,7 @@ always @(posedge clk_sys) begin
 		ce_cpu <= 1'b0;
 	end
 end
-// the PSG keeps its 1.9968 MHz in turbo
+// the PSG keeps its 1.9968 MHz in turbo, the mkIISR's YM2203 its 4 MHz
 reg [18:0] psg_acc = 0;
 reg        ce_psg = 0;
 always @(posedge clk_sys) begin
@@ -156,6 +163,18 @@ always @(posedge clk_sys) begin
 	else begin
 		psg_acc <= psg_acc + 19'd19968;
 		ce_psg <= 1'b0;
+	end
+end
+reg [18:0] opn_acc = 0;
+reg        ce_opn = 0;
+always @(posedge clk_sys) begin
+	if (opn_acc + 19'd40000 >= 19'd286364) begin
+		opn_acc <= opn_acc + 19'd40000 - 19'd286364;
+		ce_opn <= 1'b1;
+	end
+	else begin
+		opn_acc <= opn_acc + 19'd40000;
+		ce_opn <= 1'b0;
 	end
 end
 assign cpu_ce = ce_cpu;
@@ -254,32 +273,38 @@ end
 always @(posedge clk_sys) cg_cpu_q <= cg_rom[A[11:0]];
 
 // The mkII's or the PC-6601's ROMs (boot1.rom / boot2.rom, in MAME's order): BASIC 00000h (32 KB), voice
-// 08000h (16 KB), CGROM60 0C000h and CGROM60m / CGROM66 0E000h (8 KB each), kanji 10000h (32 KB), copied in
-// from DDR3 at each reset (rtl/rom_store.sv). Port A the copy and the CPU, port B the VDG's font.
+// 08000h (16 KB), CGROM60 0C000h and CGROM60m / CGROM66 0E000h (8 KB each), kanji 10000h (32 KB); the
+// mkIISR's (boot3.rom): SYSTEMROM1 00000h (64 KB), SYSTEMROM2 10000h (64 KB), CGROM68 20000h (16 KB). Copied
+// in from DDR3 at each reset (rtl/rom_store.sv). Port A the copy and the CPU, port B the VDG's font: CGROM60 /
+// CGROM68 0000h for cg_addr 0000h, CGROM60m / CGROM68 2000h for 2000h.
 wire        rs_we;
-wire [16:0] rs_a;
+wire [17:0] rs_a;
 wire  [7:0] rs_d;
-reg   [7:0] rom62[0:98303];
-reg   [7:0] rom62_q, cg62_q;
-reg  [16:0] rom62_cpu;
-wire [16:0] rom62_a = rs_we ? rs_a : rom62_cpu;
-always @(posedge clk_sys) begin
-	if (rs_we) rom62[rom62_a] <= rs_d;
-	rom62_q <= rom62[rom62_a];
-end
-always @(posedge clk_sys) cg62_q <= rom62[{3'b011, cg_addr}];
+wire  [7:0] rom62_q, cg62_q;
+reg  [17:0] rom62_cpu;
+wire [17:0] rom62_a = rs_we ? rs_a : rom62_cpu;
+dpram_tdp #(.WORDS(147456), .AW(18)) rom62
+(
+	.clk(clk_sys),
+	.addr_a(rom62_a), .we_a(rs_we), .d_a(rs_d), .q_a(rom62_q),
+	.addr_b(sr ? {4'b1000, cg_addr} : {4'b0011, cg_addr}), .we_b(1'b0), .d_b(8'h00), .q_b(cg62_q)
+);
 
-// RAM 64 KB: port A the CPU, port B the VDG. The PC-6001 has 32 KB at 8000h (16 KB at C000h).
+// RAM 64 KB: port A the CPU, port B the VDG. The PC-6001 has 32 KB at 8000h (16 KB at C000h). The mkIISR's
+// map moves its 16 KB blocks, and its bitmap access writes a nibble (from ram_q, the same address).
 wire [15:0] vaddr;
-reg   [7:0] ram[0:65535];
-reg   [7:0] ram_q, vram_q;
+wire  [7:0] ram_q, vram_q;
 wire        ram_sel = A[15] & ~(ram16k & ~A[14]);
-wire        ram_we  = ~mreq_n & ~wr_n & (mk2 ? wr_int : ram_sel) & ce_cpu;
-always @(posedge clk_sys) begin
-	if (ram_we) ram[A] <= cpu_dout;
-	ram_q <= ram[A];
-end
-always @(posedge clk_sys) vram_q <= ram[vaddr];
+wire [15:0] ram_a;
+wire  [7:0] ram_d;
+wire        ram_wsel;
+wire        ram_we  = ~mreq_n & ~wr_n & ram_wsel & ce_cpu;
+dpram_tdp #(.WORDS(65536), .AW(16)) ram
+(
+	.clk(clk_sys),
+	.addr_a(ram_a), .we_a(ram_we), .d_a(ram_d), .q_a(ram_q),
+	.addr_b(vaddr), .we_b(1'b0), .d_b(8'h00), .q_b(vram_q)
+);
 
 // Cartridge ROM at 4000h, loaded through ioctl index 2 (the mkII: EXTROM, at whichever block F0/F1 map it)
 wire       cart_wr = ioctl_download && ioctl_wr && ioctl_index[5:0] == 6'd2;
@@ -345,18 +370,74 @@ wire src_ram = src == S_RAM;
 
 wire [1:0] wsel = rf2[{A[15:14], 1'b0} +: 2];
 wire       wr_int = wsel[0];
-wire       cg_on = cg_sel && f8[6] && ((A[15:13] | f8[5:3]) == (f8[2:0] | f8[5:3]));
+// the mkIISR: the CG ROM window is 16 KB (PC6001VX MEM64::SetCGrom)
+wire [7:0] f8x = sr ? f8 | 8'h09 : f8;
+wire       cg_on = cg_sel && f8x[6] && ((A[15:13] | f8x[5:3]) == (f8x[2:0] | f8x[5:3]));
+
+//----------------------------------------------------------------------------
+// The mkIISR's map (PC6001VX MEM64, VDG64)
+//----------------------------------------------------------------------------
+// In the SR mode (C8h b0 = 0, from reset) memory is mapped in 8 KB blocks, ports 60h-67h for reads and
+// 68h-6Fh for writes: b7-4 the source, b3-1 its 8 KB block. 0 the RAM (in 16 KB: b3-2 and A13), Bh / Ch the
+// cartridge's two halves, Dh CGROM68 (b1), Eh SYSTEMROM2, Fh SYSTEMROM1; others read FFh. With C8h b3 = 0 a
+// block mapped as 00h reaches the bitmap a dot at a time instead: A9-0 is x, ports CEh / CFh y, the data its
+// low nibble (rtl/pc6001_sr.svh); C8h b4 picks the upper 32 KB.
+// With C8h b0 = 1 the older BASICs run with the mkII's map above: SYSTEMROM1 0000h-7FFFh is their BASIC,
+// SYSTEMROM2 holds the menu (0000h), voice (4000h) and kanji (8000h) ROMs.
+
+`include "pc6001_sr.svh"
+
+reg  [7:0] srm[0:15];
+reg  [7:0] c8;
+reg  [3:0] c9;
+reg  [9:0] sr_rollx;
+reg  [7:0] sr_rolly;
+reg  [8:0] sr_y;
+reg  [3:0] sr_pal[0:3];       // colours 12-15: ports 43h-40h, 15 - the value written
+reg  [3:0] sr_palw;           // ... written since reset
+reg  [7:0] sr_ien;            // interrupts (below): 1 enabled
+reg  [7:0] sr_vout;
+reg  [7:0] sr_vec[0:7];
+wire       hsync_s, vsync_s;  // port A2h's b6, b7
+assign sr_mode = sr & ~c8[0];
+wire        sr_bitmap = sr_mode & ~c8[3];
+wire  [7:0] srr = srm[{1'b0, A[15:13]}];
+wire  [7:0] srw = srm[{1'b1, A[15:13]}];
+wire  [7:0] srv = rd_n ? srw : srr;           // a write keeps RD_n high from its start
+wire        sr_bm = sr_bitmap && srv == 8'h00;
+wire [15:0] sr_gva = {c8[4], sr_gv({1'b0, A[9:0]}, sr_y)};
+
+assign ram_a    = !sr_mode ? A : sr_bm ? sr_gva : {srv[3:2], A[13:0]};
+assign ram_d    = !sr_bm ? cpu_dout : A[0] ? {cpu_dout[3:0], ram_q[3:0]} : {ram_q[7:4], cpu_dout[3:0]};
+assign ram_wsel = sr_mode ? sr_bm || srw[7:4] == 4'h0 : mk2 ? wr_int : ram_sel;
 
 always @(*) begin
-	if (cg_on) rom62_cpu = {3'b011, ~c1[1], A[12:0]};
-	else if (src == S_KNJ) rom62_cpu = kj_rom ? {2'b10, kj_lr, A[13:0]} : {3'b010, A[13:0]};
-	else rom62_cpu = {2'b00, A[14:0]};
+	if (sr_mode) case (srr[7:4])
+		4'hf: rom62_cpu = {2'b00, srr[3:1], A[12:0]};
+		4'he: rom62_cpu = {2'b01, srr[3:1], A[12:0]};
+		default: rom62_cpu = {4'b1000, srr[1], A[12:0]};
+	endcase
+	else if (cg_on) rom62_cpu = sr ? {4'b1000, ~c1[1], A[12:0]} : {4'b0011, ~c1[1], A[12:0]};
+	else if (src == S_KNJ) begin
+		if (sr) rom62_cpu = kj_rom ? {3'b011, kj_lr, A[13:0]} : {3'b010, A[15:14] != 2'd0, A[13:0]};
+		else rom62_cpu = kj_rom ? {3'b010, kj_lr, A[13:0]} : {4'b0010, A[13:0]};
+	end
+	else rom62_cpu = {3'b000, A[14:0]};
 end
-assign cart_a = mk2 ? {src == S_EXT1, A[12:0]} : A[13:0];
+assign cart_a = sr_mode ? {srr[7:4] == 4'hb, A[12:0]} : mk2 ? {src == S_EXT1, A[12:0]} : A[13:0];
 
 reg [7:0] mem_dout;
 always @(*) begin
-	if (mk2) begin
+	if (sr_mode) begin
+		if (sr_bm) mem_dout = {4'h0, A[0] ? ram_q[7:4] : ram_q[3:0]};
+		else case (srr[7:4])
+			4'h0: mem_dout = ram_q;
+			4'hb, 4'hc: mem_dout = {1'b0, cart_a} < cart_len ? cart_q : 8'hff;
+			4'hd, 4'he, 4'hf: mem_dout = rom62_q;
+			default: mem_dout = 8'hff;
+		endcase
+	end
+	else if (mk2) begin
 		if (cg_on) mem_dout = rom62_q;
 		else case (src)
 			S_MAIN, S_KNJ: mem_dout = rom62_q;
@@ -374,9 +455,12 @@ always @(*) begin
 end
 
 // Waits: one Z80 state on each M1, each memory access below 8000h and each PSG access. The mkII: port F3 b7 on
-// M1, b6 on ROM, b5 on RAM (PC6001VX MEM62::SetWait)
+// M1, b6 on ROM, b5 on RAM (PC6001VX MEM62::SetWait). The mkIISR with C8h b1 = 1: one on each access while the
+// display reads (the VDG's bus_slow) instead of the Z80 stopping.
 reg waited;
-wire mem_wait = mk2 ? (~m1_n & f3[7]) | (~wr_n | src_ram ? f3[5] : f3[6]) : ~m1_n | ~A[15];
+wire is_ram = sr_mode ? srv[7:4] == 4'h0 : src_ram;
+wire bus_slow;
+wire mem_wait = mk2 ? (~m1_n & f3[7]) | (~wr_n | is_ram ? f3[5] : f3[6]) | bus_slow : ~m1_n | ~A[15];
 wire want_wait = (~mreq_n & rfsh_n & mem_wait) | (io_cyc & A[7:4] == 4'hA);
 always @(posedge clk_sys) begin
 	if (cpu_reset) begin
@@ -395,16 +479,21 @@ always @(*) wait_n = ~(want_wait & ~waited);
 
 wire       sel_ppi = A[7:4] == 4'h9;
 wire       sel_psg = A[7:4] == 4'hA;
-wire       sel_b0  = A[7:4] == 4'hB && !(p66 && A[3:0] != 4'h0);   // the PC-6601: B1h-B3h are the floppy's
+// the PC-6601: B1h-B3h are the floppy's; the mkIISR: B0h only, B8h-BFh its interrupt vectors
+wire       sel_b0  = sr ? A[7:0] == 8'hb0 : A[7:4] == 4'hB && !(p66 && A[3:0] != 4'h0);
 wire       sel_66  = p66 && (A[7:4] == 4'hD || A[7:0] == 8'hb1 || A[7:0] == 8'hb2 || A[7:0] == 8'hb3);
 wire       sel_c   = mk2 && A[7:2] == 6'b1100_00;   // C0-C3
 wire       sel_f   = mk2 && A[7:4] == 4'hF;         // F0-F8
-wire       sel_e   = mk2 && A[7:2] == 6'b1110_00;   // E0-E3: the uPD7752 (not there yet: idle)
+wire       sel_e   = mk2 && A[7:2] == 6'b1110_00;   // E0-E3: the uPD7752
+wire       sel_40  = sr && A[7:2] == 6'b0100_00;    // the mkIISR: 40-43 the palette
+wire       sel_6x  = sr && A[7:4] == 4'h6;          // 60-6F the map
+wire       sel_bv  = sr && A[7:3] == 5'b10111;      // B8-BF interrupt vectors
+wire       sel_c8  = sr && A[7:3] == 5'b11001;      // C8-CF the SR screens
 
 always @(posedge clk_sys) begin
 	if (cpu_reset) begin
 		rf0 <= 8'h71; rf1 <= 8'hdd; rf2 <= 8'h50;    // BASIC, the cartridge, RAM above 8000h (PC6001VX INIT_RF)
-		f3 <= 8'h00; f4 <= 8'h00; f5 <= 8'h00; f6 <= 8'h03;
+		f3 <= 8'h00; f4 <= 8'h00; f5 <= 8'h00; f6 <= sr ? 8'h7f : 8'h03;
 		f8 <= 8'h43;                                // the CG ROM at 6000h
 		c0 <= 8'h00; c1 <= 8'h06;
 		kj_rom <= 1'b1; kj_lr <= 1'b1; c2acc <= 2'b11;
@@ -429,6 +518,40 @@ always @(posedge clk_sys) begin
 		end
 		default: c2acc <= cpu_dout[1:0];
 	endcase
+end
+
+// the mkIISR's registers (PC6001VX MEM64::Reset, VDG64, mc6847.cpp PCZ80_12): C8h b0 0 the SR mode, b1 1 waits
+// instead of the display stopping the Z80, b2 1 text in 20 lines (else 25), b3 0 the bitmap access, b4 its
+// upper 32 KB; C9h the text page (4 KB units; b3 the bitmap's 32 KB); CAh-CBh, CCh the bitmap's scroll x, y;
+// CEh-CFh the bitmap access's y.
+function automatic [7:0] srm_init(input [3:0] i);   // SYSTEMROM1 4000h-BFFFh at 0000h, RAM above; RAM for writes
+	srm_init = i[3] ? {4'h0, i[2:0], 1'b0} : i[2] ? {5'b00001, i[1:0], 1'b0} : {5'b11111, i[1:0], 1'b0};
+endfunction
+integer k;
+always @(posedge clk_sys) begin
+	if (cpu_reset) begin
+		for (k = 0; k < 16; k = k + 1) srm[k] <= srm_init(4'(k));
+		for (k = 0; k < 4; k = k + 1) sr_pal[k] <= 4'(12 + k);
+		sr_palw <= 0;
+		c8 <= 8'h0c; c9 <= 0; sr_rollx <= 0; sr_rolly <= 0; sr_y <= 0;
+	end
+	else if (io_wr) begin
+		if (sel_6x) srm[A[3:0]] <= cpu_dout;
+		if (sel_40) begin
+			sr_pal[2'd3 - A[1:0]] <= 4'hf - cpu_dout[3:0];
+			sr_palw[2'd3 - A[1:0]] <= 1'b1;
+		end
+		if (sel_c8) case (A[2:0])
+			3'd0: c8 <= cpu_dout;
+			3'd1: c9 <= cpu_dout[3:0];
+			3'd2: sr_rollx[7:0] <= cpu_dout;
+			3'd3: sr_rollx[9:8] <= cpu_dout[1:0];
+			3'd4: sr_rolly <= cpu_dout;
+			3'd6: sr_y[7:0] <= cpu_dout;
+			3'd7: sr_y[8] <= cpu_dout[0];
+			default: ;
+		endcase
+	end
 end
 
 reg  [7:0] sys_latch;
@@ -576,7 +699,8 @@ assign tape_hint = !tape_loaded || tape_motor ? 2'd0 : tape_pos == 0 && tape_bas
 // takes joystick 2's place when the OSD puts it there.
 wire [7:0] psg_dout;
 wire [9:0] psg_sound;
-wire [7:0] psg_iob;
+wire [7:0] psg_iob, ay_iob, opn_iob;
+assign     psg_iob = sr ? opn_iob : ay_iob;
 wire [5:0] joy_sel = psg_iob[6] ? joy0 : joy1;
 wire [7:0] touch_pa;
 wire [7:0] joy_bits = touch_en && !psg_iob[6] ? touch_pa :
@@ -610,8 +734,38 @@ jt49_bus psg
 	.IOA_out(),
 	.IOA_oe(),
 	.IOB_in(8'hff),
-	.IOB_out(psg_iob),
+	.IOB_out(ay_iob),
 	.IOB_oe()
+);
+
+// the mkIISR's YM2203 (jt03) in its place: A0h the register, A1h data, A2h reads the register (the SSG's),
+// A3h the status
+wire        [7:0] opn_dout;
+wire        [9:0] opn_psg;
+wire signed [15:0] opn_fm;
+jt03 opn
+(
+	.rst(cpu_reset | ~sr),
+	.clk(clk_sys),
+	.cen(ce_opn),
+	.din(cpu_dout),
+	.addr(A[0] ^ A[1]),
+	.cs_n(1'b0),
+	.wr_n(~(io_wr & sel_psg & ~A[1])),
+	.dout(opn_dout),
+	.irq_n(),
+	.IOA_in(joy_bits),
+	.IOB_in(8'hff),
+	.IOA_out(),
+	.IOB_out(opn_iob),
+	.IOA_oe(),
+	.IOB_oe(),
+	.psg_A(), .psg_B(), .psg_C(),
+	.fm_snd(opn_fm),
+	.psg_snd(opn_psg),
+	.snd(),
+	.snd_sample(),
+	.debug_view()
 );
 
 // the mkII's uPD7752 (rtl/upd7752.sv), ports E0h-E3h
@@ -629,8 +783,10 @@ upd7752 vsp
 	.sample(voice)
 );
 
-// the mkII mixes the voice in at half the PSG's level: 0..16368 + 16384 +- 16384
-assign audio = mk2 ? {2'b00, psg_sound, 4'd0} + 16'd16384 + {{2{voice[13]}}, voice} * 16'sd2
+// the mkII mixes the voice in at half the PSG's level: 0..16368 + 16384 +- 16384; the mkIISR the SSG
+// (0..16368), FM (+-8192) and the voice (+-8192) around 32768
+assign audio = sr  ? {2'b00, opn_psg, 4'd0} + 16'd24576 + 16'({{2{opn_fm[15]}}, opn_fm[15:2]}) + 16'({{2{voice[13]}}, voice})
+             : mk2 ? {2'b00, psg_sound, 4'd0} + 16'd16384 + {{2{voice[13]}}, voice} * 16'sd2
                    : {1'b0, psg_sound, 5'd0};
 
 //----------------------------------------------------------------------------
@@ -768,13 +924,20 @@ always @(*) begin
 		4'h0: io_dout = rf0;
 		4'h1: io_dout = rf1;
 		4'h2: io_dout = rf2;
-		4'h3: io_dout = f3;
-		4'h4: io_dout = f4;
-		4'h5: io_dout = f5;
+		4'h3: io_dout = sr ? 8'hff : f3;
+		4'h4: io_dout = sr ? sr_vec[0] : f4;
+		4'h5: io_dout = sr ? sr_vec[1] : f5;
 		4'h6: io_dout = f6;
+		4'h7: io_dout = sr ? sr_vec[2] : 8'hff;
+		4'ha: io_dout = sr ? ~sr_ien : 8'hff;
+		4'hb: io_dout = sr ? sr_vout : 8'hff;
 		default: io_dout = 8'hff;
 	endcase
 	else if (sel_c && A[1:0] == 2'd2) io_dout = {6'b111111, kj_lr, kj_rom};
+	else if (sel_6x) io_dout = srm[A[3:0]];
+	else if (sr && A[7:0] == 8'hb2) io_dout = 8'hfd;              // b1 0: the mkIISR (1 the 6601SR)
+	else if (sr && sel_psg && A[1:0] == 2'd2) io_dout = opn_dout & {~vsync_s, ~hsync_s, 6'h3f};
+	else if (sr && sel_psg && A[1:0] == 2'd3) io_dout = opn_dout;
 	else if (sel_e) io_dout = voice_dout;
 	else if (sel_66) io_dout = fdc66_dout;
 	else if (sel_ppi) io_dout = ppi_dout;
@@ -788,12 +951,39 @@ end
 //----------------------------------------------------------------------------
 
 localparam TIMER_PERIOD = 8192;   // Z80 states: 2048 x (3 + 1); the mkII 2048 x (F6 + 1)
-wire [19:0] timer_period = mk2 ? {f6 + 9'd1, 11'd0} : 20'(TIMER_PERIOD);
+// the mkIISR (PC6001VX IRQ64::SetTimerIntrHz): 56 x (F6 + 1) in the SR mode, 1792 x (F6 + 1) otherwise
+wire  [8:0] f6p = {1'b0, f6} + 9'd1;
+wire [19:0] timer_period = sr ? (sr_mode ? {5'd0, f6p, 6'd0} - {8'd0, f6p, 3'd0} : {f6p, 11'd0} - {3'd0, f6p, 8'd0})
+                         : mk2 ? {f6p, 11'd0} : 20'(TIMER_PERIOD);
+
+// The mkIISR's interrupt controller (PC6001VX IRQ64): FAh masks (b0 the sub CPU, b2 the timer, b4 VRTC;
+// 1 masked), FBh sends the vector from B8h-BFh (b0-b7) instead of the default. F3h-F5h, F7h do the mkII's
+// part of that outside the SR mode. All are masked from reset.
+always @(posedge clk_sys) begin
+	if (cpu_reset) begin
+		sr_ien <= 0; sr_vout <= 0;
+		for (k = 0; k < 8; k = k + 1) sr_vec[k] <= 0;
+	end
+	else if (io_wr) begin
+		if (sel_bv) sr_vec[A[2:0]] <= cpu_dout;
+		if (sr && sel_f) case (A[3:0])
+			4'h3: if (!sr_mode) begin sr_ien[2:0] <= ~cpu_dout[2:0]; sr_vout[1:0] <= cpu_dout[4:3]; end
+			4'h4: if (!sr_mode) sr_vec[0] <= cpu_dout;
+			4'h5: if (!sr_mode) sr_vec[1] <= cpu_dout;
+			4'h7: if (!sr_mode) sr_vec[2] <= cpu_dout;
+			4'ha: sr_ien <= ~cpu_dout;
+			4'hb: sr_vout <= cpu_dout;
+			default: ;
+		endcase
+	end
+end
+wire timer_en = sr ? sr_ien[2] : ~(mk2 & f3[2]);
 
 reg [19:0] timer_cnt;
 reg        timer_req;
 reg        timer_off_d;
-reg        int_timer;     // the acknowledge goes to the timer
+reg  [1:0] int_src;           // the acknowledged interrupt: 0 the timer, 1 the sub CPU, 2 VRTC
+wire [1:0] int_pick;
 
 always @(posedge clk_sys) begin
 	if (cpu_reset) begin
@@ -807,33 +997,48 @@ always @(posedge clk_sys) begin
 		else if (ce_cpu) begin
 			if (timer_cnt == 0) begin
 				timer_cnt <= timer_period - 1'd1;
-				if (!(mk2 && f3[2])) timer_req <= 1'b1;   // the mkII drops it while F3 b2 masks the timer
+				if (timer_en) timer_req <= 1'b1;   // the mkII drops it while F3 b2 masks the timer
 			end
 			else timer_cnt <= timer_cnt - 1'd1;
 		end
-		if (inta_s && int_timer) timer_req <= 1'b0;
+		if (inta_s && int_pick == 2'd0) timer_req <= 1'b0;
 	end
 end
 
+// VRTC (the mkIISR's SR mode): asked at the end of vertical sync, withdrawn a line later if not taken
+// (PC6001VX VDG64::EventCallback)
+wire vrtc_set, vrtc_clr;
+reg  vrtc_req;
+always @(posedge clk_sys) begin
+	if (cpu_reset) vrtc_req <= 0;
+	else if (vrtc_set) vrtc_req <= sr_mode & sr_ien[4] & ~timer_off;
+	else if (vrtc_clr || (inta_s && int_pick == 2'd2)) vrtc_req <= 0;
+end
+
 // the mkII: F3 b0 masks the sub CPU, b2 the timer; b3 sends F4 as the sub CPU's vector (PC6001VX IRQ62)
-wire timer_pend = timer_req & ~timer_off & ~(mk2 & f3[2]);
-wire sub_pend   = sub_irq & ~(mk2 & f3[0]);
-wire [7:0] sub_vec = mk2 && f3[3] ? f4 : sub_vector;
-assign int_n = ~(timer_pend | sub_pend);
+wire timer_pend = timer_req & ~timer_off & timer_en;
+wire sub_pend   = sub_irq & (sr ? sr_ien[0] : ~(mk2 & f3[0]));
+wire vrtc_pend  = vrtc_req & sr_mode & sr_ien[4] & ~timer_off;
+wire [7:0] timer_vec = sr && sr_vout[2] ? sr_vec[2] : 8'h06;
+wire [7:0] sub_vec   = sr ? (sr_vout[0] ? sr_vec[0] : sub_vector) : mk2 && f3[3] ? f4 : sub_vector;
+wire [7:0] vrtc_vec  = sr_vout[4] ? sr_vec[4] : 8'h22;
+assign int_pick = timer_pend ? 2'd0 : sub_pend ? 2'd1 : 2'd2;
+wire [7:0] vec_now = timer_pend ? timer_vec : sub_pend ? sub_vec : vrtc_vec;
+assign int_n = ~(timer_pend | sub_pend | vrtc_pend);
 
 // The vector is decided at the start of the acknowledge cycle and held for it.
 reg [7:0] int_vec;
 always @(posedge clk_sys) begin
 	sub_ack <= 1'b0;
 	if (inta_s) begin
-		int_timer <= timer_pend;
-		int_vec <= timer_pend ? 8'h06 : sub_vec;
-		if (!timer_pend) sub_ack <= 1'b1;
+		int_src <= int_pick;
+		int_vec <= vec_now;
+		if (int_pick == 2'd1) sub_ack <= 1'b1;
 	end
 end
 
 always @(*) begin
-	if (inta) cpu_din = inta_d ? int_vec : (timer_pend ? 8'h06 : sub_vec);
+	if (inta) cpu_din = inta_d ? int_vec : vec_now;
 	else if (~mreq_n) cpu_din = mem_dout;
 	else cpu_din = io_dout;
 end
@@ -846,14 +1051,24 @@ pc6001_vdg vdg
 (
 	.clk(clk_sys),
 	.reset(reset),
-	.ce_pix(ce_pix),
+	.ce_pix(ph == 2'd3),
 	.ph(ph),
 	.vram_base(vram_base),
 	.disp_on(crt_on),
 	.mk2(mk2),
 	.page(sys_latch[2:1]),
-	.crt_mode(c1[3:1]),
+	.crt_mode(c1[3:0]),
 	.css(c0[2:0]),
+	.sr(sr),
+	.sr_mode(sr_mode),
+	.c8(c8),
+	.c9(c9),
+	.rollx(sr_rollx),
+	.rolly(sr_rolly),
+	.pal({sr_palw, sr_pal[3], sr_pal[2], sr_pal[1], sr_pal[0]}),
+	.vrtc_set(vrtc_set),
+	.vrtc_clr(vrtc_clr),
+	.bus_slow(bus_slow),
 	.vaddr(vaddr),
 	.vdata(vram_q),
 	.cg_addr(cg_addr),
@@ -862,6 +1077,7 @@ pc6001_vdg vdg
 	.R(R), .G(G), .B(B),
 	.HSync(HSync), .VSync(VSync),
 	.HBlank(HBlank), .VBlank(VBlank),
+	.hsync_s(hsync_s), .vsync_s(vsync_s),
 	.mono(mono),
 	.cidx(cidx)
 );

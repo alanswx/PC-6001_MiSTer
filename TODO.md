@@ -19,12 +19,14 @@
 - Printer (port B / C0), RS-232C (80-81).
 
 ## Later models
-- PC-6601: check on a MiSTer; format (Write ID is not in PC6001VX either); booting disks; the external
+- PC-6601: format (Write ID is not in PC6001VX either); booting disks; the external
   PC-6031 port; 6601 software.
 - mkII (started 2026-10-31: memory map, mode 5, palette, mode menu): check on a MiSTer; tapes and cartridges
   made for the mkII; uPD7752 built-in phrases (F40-F44: PC6001VX plays WAV files, no data here); the joystick
   interrupt (INT2); composite for its colours; the PSG port A2 sync bits PC6001VX gives it.
-- SR: YM2203, SR video modes, programmable interrupt vectors (B8-BF, FA, FB).
+- PC-6001mkIISR: check N66SR-BASIC's graphics (SCREEN 2,2,2 sets the bitmap; LINE etc. not tried yet), FM
+  sound (PLAY), the bitmaps' fine scroll (CAh b0-1), 25-line text, the voice interrupt (INT4), SR software
+  (tapes, disks); the 6601SR (SYSTEMROM*.68 are not here); the 8251 at 80h-81h.
 
 ## Last
 - WAV tape input; CSAVE (command 38h bytes out).

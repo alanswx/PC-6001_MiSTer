@@ -1,7 +1,7 @@
 # NEC PC-6001 for MiSTer
 
-Work in progress: a MiSTer core for the NEC PC-6001 (1981), the PC-6001mkII (1983) and the PC-6601 (1983), with
-the SR models as a later goal.
+Work in progress: a MiSTer core for the NEC PC-6001 (1981), the PC-6001mkII (1983), the PC-6601 (1983) and the
+PC-6001mkIISR (1984).
 
 ## Status
 
@@ -20,7 +20,8 @@ the SR models as a later goal.
 | Printer, RS-232C, Senshi no Cartridge (banked) | not yet |
 | PC-6001mkII (Machine > Model): 64 KB RAM, the F0-F3 memory map, the mode menu, modes 1-4 in its colours, mode 5 (N60m: 40x20 text, 320x200 and 160x200 graphics), 16-colour palette, kanji ROM | in progress: the mode menu, N60 BASIC and N60m-BASIC match MAME; mkII tapes such as Chack'n Pop run; TALK speaks (uPD7752, below); Composite (TV) is for the PC-6001 only |
 | PC-6601 (Machine > Model): the mkII with a built-in floppy drive (a uPD765 the Z80 drives, a 1 KB buffer at D0h-D3h) and N66-BASIC | in progress: the menu and N66-BASIC's disk commands (FILES, LOAD, SAVE) work in the simulator |
-| SR models | not yet (no SYSTEMROM dumps here) |
+| PC-6001mkIISR (Machine > Model): the SR mode's 8 KB memory map, 40/80-column text, 320x200x16 and 640x200x4 bitmaps, palette, its interrupt controller (VRTC), YM2203 (jt03), 3.58 MHz Z80 | in progress: the menu and N66SR-BASIC run in the simulator (below) |
+| PC-6601SR | not yet (only the SR's ROMs are here) |
 
 It boots N60-BASIC to "How Many Pages?", takes keyboard input, runs BASIC (including SCREEN 3/4 graphics) and
 loads tapes and disks, in the Verilator simulation and on a MiSTer. The Quartus build fits (30% ALMs, 76% of the
@@ -37,7 +38,7 @@ The menu follows the MiSTer computer-core OSD and tape standards:
 | Tape | top | a .p6 / .cas / .p6t image (up to 64 KB), rewound at each load; not remembered. A .p6t plays its byte image; its gaps are skipped |
 | Load ROM | top | another boot.rom for this session; resets the machine |
 | Memory | top | 32 KB or 16 KB (the PC-6001; the mkII has 64 KB) |
-| Model | Machine | PC-6001 (default), PC-6001mkII (its ROMs in boot1.rom, below) or PC-6601 (boot2.rom) |
+| Model | Machine | PC-6001 (default), PC-6001mkII (its ROMs in boot1.rom, below), PC-6601 (boot2.rom) or PC-6001mkIISR (boot3.rom) |
 | Tape speed | Machine | 7x (default) or Normal; taken when the motor starts |
 | Remove cartridge | Machine | button: takes the cartridge out and resets to BASIC |
 | Rewind tape | Machine | button |
@@ -91,7 +92,14 @@ For the PC-6601, `boot2.rom` in the same order: `BASICROM.66`, `VOICEROM.66`, `C
 cat BASICROM.66 VOICEROM.66 CGROM60.66 CGROM66.66 KANJIROM.66 > boot2.rom
 ```
 
-Main loads all of them at the core's start; Machine > Model picks which one runs. boot1.rom and boot2.rom are
+For the PC-6001mkIISR, `boot3.rom`: `SYSTEMROM1.64`, `SYSTEMROM2.64` (64 KB each), `CGROM68.64` (16 KB), 144 KB
+(MAME's pc6001mk2sr set has them as systemrom1.64, systemrom2.64, cgrom68.64):
+
+```
+cat SYSTEMROM1.64 SYSTEMROM2.64 CGROM68.64 > boot3.rom
+```
+
+Main loads all of them at the core's start; Machine > Model picks which one runs. boot1.rom to boot3.rom are
 kept in DDR3 and the model's set is copied into the core at each reset (rtl/rom_store.sv), so the model can
 change without reloading the core. The PC-6031's DISK.ROM stays in boot.rom.
 
@@ -171,6 +179,25 @@ port's low bits and the B register); DAh sets how many bytes a read or write mov
 image (1D, as the PC-6031's), so the same .d88 works on both. In the simulator N66-BASIC finds the drive, and
 FILES, LOAD, SAVE and the write-back to the image work. The external PC-6031 port (B1h b2) reads as nothing
 connected.
+
+## PC-6001mkIISR
+
+Machine > Model = PC-6001mkIISR. Its menu offers the older BASICs (1-5, with the mkII's memory map; SYSTEMROM1
+holds their BASIC) and N66SR-BASIC (6). After PC6001VX (memory.cpp MEM64, mc6847.cpp PCZ80_12, intr.cpp IRQ64),
+as MAME's driver does not run N66SR-BASIC:
+
+- the SR mode (port C8h b0 = 0, from reset): memory in 8 KB blocks by ports 60h-6Fh (RAM, SYSTEMROM1/2,
+  CGROM68, the cartridge), and the bitmap a dot at a time through a block mapped as 00h (x from the address,
+  y from CEh/CFh)
+- text 40 or 80 columns by 20 or 25 rows (character and attribute bytes, 16 colours), bitmaps of 320x200 in 16
+  colours or 640x200 in 4, scrolled by CAh-CCh; ports 40h-43h recolour four colours. The 640-dot screens need a
+  14.32 MHz dot clock, so on this model every screen goes out at 14.32 MHz (the others' dots twice).
+- interrupts by FAh/FBh and vectors B8h-BFh, with VRTC; the timer at 56 x (F6h + 1) states
+- the YM2203 (jt03, 4 MHz) instead of the AY-3-8910; the Z80 at 3.58 MHz (28.636 MHz / 8)
+
+In the simulator the menu appears and N66SR-BASIC starts, prints and lists. The menu's colours follow PC6001VX's
+palette (MAME's driver ignores ports 40h-43h). Not done: the bitmaps' fine scroll (by one or two dots), the
+6601SR (its ROMs are not here), the 8251 serial port.
 
 ## Composite video
 

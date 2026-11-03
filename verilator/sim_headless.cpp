@@ -56,7 +56,7 @@ struct Options {
     std::string cart_file;                // --cart FILE: cartridge ROM through ioctl index 2
     std::string disk_rom;                 // DIR/DISK.ROM from --rom-dir: the PC-6031's firmware, at 5000h of boot.rom
     std::string rom_dir = "../rom";       // boot1.rom (the mkII's ROMs) is made from DIR/*.62
-    int model = 0;                        // OSD Model: --mk2 1 (PC-6001mkII), --p66 2 (PC-6601)
+    int model = 0;                        // OSD Model: --mk2 1 (PC-6001mkII), --p66 2 (PC-6601), --sr 3 (mkIISR)
     std::string disk_file;                // --disk FILE: a .d88 mounted as S0
     std::string disk_out;                 // --disk-out FILE: the image as the drive left it, written at the end
     int         composite = -1;               // --composite N: OSD Video = Composite, B/W graphics on TV = N
@@ -82,7 +82,8 @@ static void usage()
 "  --stop-at-frame N      exit after frame N (default 60)\n"
 "  --quiet                no progress on stderr\n"
 "  --rom-dir DIR          DIR/BASICROM.60 and DIR/CGROM60.60 (default ../rom); --basic FILE / --cgrom FILE\n"
-"  --mk2                  OSD Model = PC-6001mkII (boot1.rom from DIR/*.62); --p66 PC-6601 (boot2.rom, DIR/*.66)\n"
+"  --mk2                  OSD Model = PC-6001mkII (boot1.rom from DIR/*.62); --p66 PC-6601 (boot2.rom, DIR/*.66);\n"
+"                         --sr PC-6001mkIISR (boot3.rom, DIR/SYSTEMROM1.64 + SYSTEMROM2.64 + CGROM68.64)\n"
 "  --ram16k               16 KB RAM (C000-FFFF) instead of 32 KB\n"
 "  --cart FILE            load a cartridge ROM (OSD Cartridge); BASIC boots it\n"
 "  --composite N          the picture as a TV decodes it (rtl/pc6001_composite.sv); N, the black/white\n"
@@ -163,6 +164,7 @@ static bool parse_args(int argc, char **argv, Options &o)
         else if (a == "--rom-dir") { std::string d = next(); o.rom_dir = d; o.basic_rom = d + "/BASICROM.60"; o.cg_rom = d + "/CGROM60.60"; o.disk_rom = d + "/DISK.ROM"; }
         else if (a == "--mk2") o.model = 1;
         else if (a == "--p66") o.model = 2;
+        else if (a == "--sr") o.model = 3;
         else if (a == "--no-disk-unit") o.disk_rom.clear();
         else if (a == "--disk") o.disk_file = next();
         else if (a == "--disk-out") o.disk_out = next();
@@ -366,19 +368,22 @@ bool Sim::load_rom()
     // boot1.rom (the mkII, ioctl_index 40h) and boot2.rom (the PC-6601, 80h), as Main loads them at the core's
     // start, each only with its model so that the other models' runs keep their timing. MAME's order: BASICROM
     // (32 KB), VOICEROM (16 KB) at 8000h, CGROM60 at C000h, CGROM60m / CGROM66 at E000h (8 KB each), KANJIROM
-    // (32 KB) at 10000h
+    // (32 KB) at 10000h. boot3.rom (the mkIISR, C0h): SYSTEMROM1 (64 KB), SYSTEMROM2 at 10000h, CGROM68 (16 KB) at
+    // 20000h
     static const struct { const char *name; uint32_t at, size; } mk2[] = {
         { "BASICROM.62", 0x00000, 0x8000 }, { "VOICEROM.62", 0x08000, 0x4000 }, { "CGROM60.62", 0x0c000, 0x2000 },
         { "CGROM60m.62", 0x0e000, 0x2000 }, { "KANJIROM.62", 0x10000, 0x8000 } };
     static const struct { const char *name; uint32_t at, size; } p66[] = {
         { "BASICROM.66", 0x00000, 0x8000 }, { "VOICEROM.66", 0x08000, 0x4000 }, { "CGROM60.66", 0x0c000, 0x2000 },
         { "CGROM66.66", 0x0e000, 0x2000 }, { "KANJIROM.66", 0x10000, 0x8000 } };
+    static const struct { const char *name; uint32_t at, size; } sr[] = {
+        { "SYSTEMROM1.64", 0x00000, 0x10000 }, { "SYSTEMROM2.64", 0x10000, 0x10000 }, { "CGROM68.64", 0x20000, 0x4000 } };
     if (opt.model == 0) return true;
-    std::vector<uint8_t> b1(0x18000, 0xFF);
+    std::vector<uint8_t> b1(opt.model == 3 ? 0x24000 : 0x18000, 0xFF);
     bool any = false;
-    for (int i = 0; i < 5; i++) {
-        const char *name = opt.model == 2 ? p66[i].name : mk2[i].name;
-        uint32_t at = mk2[i].at, size = mk2[i].size;
+    for (int i = 0; i < (opt.model == 3 ? 3 : 5); i++) {
+        const char *name = opt.model == 3 ? sr[i].name : opt.model == 2 ? p66[i].name : mk2[i].name;
+        uint32_t at = opt.model == 3 ? sr[i].at : mk2[i].at, size = opt.model == 3 ? sr[i].size : mk2[i].size;
         std::vector<uint8_t> f;
         if (!read_file(opt.rom_dir + "/" + name, f)) {
             fprintf(stderr, "warning: %s/%s not found (boot%d.rom)\n", opt.rom_dir.c_str(), name, opt.model);
@@ -389,9 +394,9 @@ bool Sim::load_rom()
         any = true;
     }
     if (any) {
-        ioctl_load(0, b1, opt.model == 2 ? 0x80 : 0x40);
+        ioctl_load(0, b1, opt.model << 6);
         if (!opt.quiet) fprintf(stderr, "[sim] boot%d.rom: the %s's ROMs from '%s'\n", opt.model,
-                                opt.model == 2 ? "PC-6601" : "mkII", opt.rom_dir.c_str());
+                                opt.model == 3 ? "mkIISR" : opt.model == 2 ? "PC-6601" : "mkII", opt.rom_dir.c_str());
     }
     return true;
 }
@@ -675,7 +680,7 @@ int Sim::run()
         if (!fr) perror(opt.dump_ram.c_str());
         else {
             // the PC-6001's 32 KB at 8000h; the mkII's whole 64 KB
-            for (int i = opt.model ? 0 : 0x8000; i < 0x10000; i++) { uint8_t v = top->rootp->top__DOT__pc6001__DOT__ram[i]; fwrite(&v, 1, 1, fr); }
+            for (int i = opt.model ? 0 : 0x8000; i < 0x10000; i++) { uint8_t v = top->rootp->top__DOT__pc6001__DOT__ram__DOT__mem[i]; fwrite(&v, 1, 1, fr); }
             fclose(fr);
         }
     }
@@ -698,6 +703,13 @@ int Sim::run()
     if (flog) fclose(flog);
     if (ftrace) fclose(ftrace);
     if (fio) fclose(fio);
+    if (getenv("SIM_SR_REGS")) {
+        auto *r = top->rootp;
+        fprintf(stderr, "[sim] c0 %02x c1 %02x c8 %02x pal %x %x %x %x palw %x\n", r->top__DOT__pc6001__DOT__c0,
+                r->top__DOT__pc6001__DOT__c1, r->top__DOT__pc6001__DOT__c8, r->top__DOT__pc6001__DOT__sr_pal[0],
+                r->top__DOT__pc6001__DOT__sr_pal[1], r->top__DOT__pc6001__DOT__sr_pal[2],
+                r->top__DOT__pc6001__DOT__sr_pal[3], r->top__DOT__pc6001__DOT__sr_palw);
+    }
     if (!opt.quiet) fprintf(stderr, "[sim] done: %u frames, %.3f s emulated\n", frame, cycle / CLK_HZ);
     return exit_code;
 }

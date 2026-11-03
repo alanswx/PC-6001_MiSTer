@@ -1,7 +1,8 @@
-// The mkII's and the PC-6601's ROMs: Main loads boot1.rom and boot2.rom (ioctl index 40h, 80h) once, at the
-// core's start, but OSD Model can change at any reset. Both are kept in DDR3 as they come, and at the end of
-// every reset (and of their downloads) the current model's 96 KB is copied into the core's ROM (rom62 in
-// rtl/pc6001.sv), the machine held in reset meanwhile (busy; about 10 ms).
+// The mkII's, the PC-6601's and the mkIISR's ROMs: Main loads boot1.rom, boot2.rom and boot3.rom (ioctl index
+// 40h, 80h, C0h) once, at the core's start, but OSD Model can change at any reset. All are kept in DDR3 as they
+// come, and at the end of every reset (and of their downloads) the current model's 96 KB (the mkIISR's 144 KB)
+// is copied into the core's ROM (rom62 in rtl/pc6001.sv), the machine held in reset meanwhile (busy; about
+// 10 ms, 15 ms).
 //
 // DDR3 (64-bit words): set n at BASE + n x 4000h words, the byte at ioctl address a in word a / 8, lane a % 8.
 
@@ -9,7 +10,7 @@ module rom_store #(parameter [28:0] BASE = 29'h06020000)   // past the disk imag
 (
 	input             clk,
 	input             reset,          // the machine's reset: a copy follows its end
-	input       [1:0] model,          // 1 the mkII (set 0), 2 the PC-6601 (set 1)
+	input       [1:0] model,          // 1 the mkII (set 0), 2 the PC-6601 (set 1), 3 the mkIISR (set 2)
 
 	input             ioctl_download,
 	input       [7:0] ioctl_index,
@@ -19,7 +20,7 @@ module rom_store #(parameter [28:0] BASE = 29'h06020000)   // past the disk imag
 	output            ioctl_wait,
 
 	output            busy,
-	output reg [16:0] rom_a,
+	output reg [17:0] rom_a,
 	output reg  [7:0] rom_d,
 	output reg        rom_we = 0,
 
@@ -34,13 +35,13 @@ module rom_store #(parameter [28:0] BASE = 29'h06020000)   // past the disk imag
 	output reg        ddr_we = 0
 );
 
-localparam [13:0] WORDS = 14'd12288;     // 96 KB
+wire [14:0] words = model == 2'd3 ? 15'd18432 : 15'd12288;   // 144 KB, 96 KB
 
 assign ddr_burstcnt = 8'd1;
 
-wire       dl_set = ioctl_index == 8'h80;
-wire       dl_ours = ioctl_index == 8'h40 || ioctl_index == 8'h80;
-wire       cur_set = model == 2'd2;
+wire [1:0] dl_set = ioctl_index[7:6] - 2'd1;
+wire       dl_ours = ioctl_index[5:0] == 0 && ioctl_index[7:6] != 0;
+wire [1:0] cur_set = model - 2'd1;
 
 // downloads: each byte goes to DDR3 with its byte enable; the download waits while one is going out
 reg        wr_pend = 0;
@@ -48,7 +49,7 @@ assign ioctl_wait = wr_pend;
 
 reg        reset_d = 0, dl_d = 0, copy_req = 0;
 reg        copying = 0, rd_wait = 0;
-reg [13:0] word;
+reg [14:0] word;
 reg  [2:0] lane;
 reg [63:0] data;
 reg        have = 0;                      // data holds a word still being copied out
@@ -64,8 +65,8 @@ always @(posedge clk) begin
 	// a copy after each reset, and after a download of the current model's set
 	if ((reset_d && !reset) || (dl_d && !(ioctl_download && dl_ours))) copy_req <= model != 2'd0;
 
-	if (ioctl_download && ioctl_wr && dl_ours && ioctl_addr[24:17] == 0) begin
-		ddr_addr <= BASE + {14'd0, dl_set, ioctl_addr[16:3]};
+	if (ioctl_download && ioctl_wr && dl_ours && ioctl_addr[24:18] == 0) begin
+		ddr_addr <= BASE + {13'd0, dl_set, 14'd0} + {14'd0, ioctl_addr[17:3]};
 		ddr_din <= {8{ioctl_dout}};
 		ddr_be <= 8'h01 << ioctl_addr[2:0];
 		ddr_we <= 1'b1;
@@ -78,7 +79,7 @@ always @(posedge clk) begin
 	end
 	else if (copying) begin
 		if (!have && !rd_wait && !ddr_rd) begin
-			ddr_addr <= BASE + {14'd0, cur_set, word};
+			ddr_addr <= BASE + {13'd0, cur_set, 14'd0} + {14'd0, word};
 			ddr_rd <= 1'b1;
 			rd_wait <= 1'b1;
 		end
@@ -92,7 +93,7 @@ always @(posedge clk) begin
 			lane <= lane + 1'd1;
 			if (lane == 3'd7) begin
 				have <= 0;
-				if (word + 1'd1 == WORDS) copying <= 0;
+				if (word + 1'd1 == words) copying <= 0;
 				word <= word + 1'd1;
 			end
 		end

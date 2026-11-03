@@ -83,7 +83,7 @@ localparam CONF_STR = {
 	"h0-,Changes pending;",
 	"R[0],Apply and reset;",
 
-	"P1O[15:14],Model,PC-6001,PC-6001mkII,PC-6601;",
+	"P1O[15:14],Model,PC-6001,PC-6001mkII,PC-6601,PC-6001mkIISR;",
 	"P1-;",
 	"P1O[4],Tape speed,", 8'h30 + 8'(TURBO), "x,Normal;",
 	"P1-;",
@@ -235,7 +235,7 @@ pc6001 #(.TURBO(TURBO)) pc6001
 (
 	.clk_sys(clk_sys),
 	.reset(reset),
-	.model(cfg[15:14]),    // the mkII's ROMs are boot1.rom, the PC-6601's boot2.rom
+	.model(cfg[15:14]),    // the mkII's ROMs are boot1.rom, the PC-6601's boot2.rom, the mkIISR's boot3.rom
 	.ram16k(cfg[1]),
 	.tape_turbo(~status[4]),
 	.tape_rewind(status[3]),

@@ -3,8 +3,8 @@ NEC PC-6001 for MiSTer - tester build 2026-11-02
 
 This is a work-in-progress core. It runs N60-BASIC, loads tapes, runs ROM
 cartridges and has the PC-6031 disk unit (one drive). Machine > Model also
-has the PC-6001mkII and, new in this build, the PC-6601 with its built-in
-drive (below). The SR models are not done yet.
+has the PC-6001mkII, the PC-6601 with its built-in drive and, new in this
+build, the PC-6001mkIISR (below). The 6601SR is not done yet.
 
 Install
 -------
@@ -16,6 +16,8 @@ Unzip this at the root of the SD card (/media/fat/). It puts:
                                   CGROM60.62 + CGROM60m.62 + KANJIROM.62 (98304 bytes)
   games/PC6001/boot2.rom          the PC-6601's: BASICROM.66 + VOICEROM.66 +
                                   CGROM60.66 + CGROM66.66 + KANJIROM.66 (98304 bytes)
+  games/PC6001/boot3.rom          the PC-6001mkIISR's: SYSTEMROM1.64 + SYSTEMROM2.64 +
+                                  CGROM68.64 (147456 bytes)
   games/PC6001/MAME/              tapes from the MAME software list
   games/PC6001/TOSEC/             tapes from the TOSEC set
   games/PC6001/Cartridges/        ROM cartridges
@@ -105,6 +107,14 @@ Disk drive 1, pick 5 (N66-BASIC) at the menu, and FILES / LOAD / SAVE use
 the built-in drive. The PC-6031 unit is not connected in this model.
 New: tested with BASIC files only; disk software for the 6601 is a welcome
 report.
+
+PC-6001mkIISR
+-------------
+Machine > Model: PC-6001mkIISR, then Apply and reset. Its menu offers the
+older BASICs (1-5) and N66SR-BASIC (6). New and lightly tested: the menu and
+N66SR-BASIC's text screen run on a MiSTer; graphics and the YM2203's FM
+sound are in but not checked yet. The picture is 640 dots wide on this
+model. SR tapes and disks are welcome reports.
 
 What to test / report
 ---------------------

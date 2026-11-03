@@ -24,6 +24,15 @@
 //    graphics: attribute plane at the page, data plane at page+2000h, 40 bytes a line; C1 bit 3 = 0 320x200
 //      in 4 colours (a data bit and an attribute bit a dot), = 1 160x200 in 16 (two of each a dot)
 //  The page is port B0 bits 2-1: 8000h, C000h, 0000h, 4000h. C0 bits 2-0 are CSS3-1.
+//
+//  PC-6001mkIISR (sr): dots go out at 14.32 MHz (each of the others twice). Its SR mode (sr_mode, PC6001VX
+//  mc6847.cpp PCZ80_12::Draw1line3) is 320 (or 640) x 200 from dot 8 and line 20, C1 b0 0 204 lines (bitmap),
+//  b1 1 40 columns (else 80), b2 1 text, b3 1 the 320-dot bitmap (else 640):
+//    text: from C9h x 1000h, a character and an attribute byte a cell (as mode 5's), 20 rows of 10 lines (C8h
+//      b2 = 1, the font CGROM68 2000h, 512 characters) or 25 of 8 (CGROM68 1000h; attribute b7 semigraphics)
+//    bitmap: the 32 KB at C9h b3 (rtl/pc6001_sr.svh), scrolled by CAh-CCh; 320 dots of 16 colours (a nibble
+//      each) or 640 of 4 (a bit from each of two bytes, with CSS2-1)
+//  Ports 40h-43h recolour colours 15-12 (pal).
 //============================================================================
 
 module pc6001_vdg
@@ -38,8 +47,19 @@ module pc6001_vdg
 
 	input             mk2,           // PC-6001mkII
 	input       [1:0] page,          // port B0 bits 2-1
-	input       [3:1] crt_mode,      // port C1: b1 0 N60m, b2 1 text, b3 1 160x200
+	input       [3:0] crt_mode,      // port C1: b1 0 N60m, b2 1 text, b3 1 160x200 (the SR mode: above)
 	input       [2:0] css,           // port C0: CSS3-1
+
+	input             sr,            // PC-6001mkIISR
+	input             sr_mode,       // port C8h b0 = 0
+	input       [7:0] c8,
+	input       [3:0] c9,
+	input       [9:0] rollx,
+	input       [7:0] rolly,
+	input      [19:0] pal,           // b19-16 written, b15-0 colours 15-12 (4 bits each)
+	output            vrtc_set,      // the end of vertical sync
+	output            vrtc_clr,      // a line later
+	output            bus_slow,      // C8h b1 = 1: the Z80 waits instead of stopping
 
 	output reg [15:0] vaddr,         // combinational         // to the RAM's video port
 	input       [7:0] vdata,         // one clk after vaddr
@@ -57,6 +77,8 @@ module pc6001_vdg
 	output reg        VSync,
 	output reg        HBlank,
 	output reg        VBlank,
+	output            hsync_s,       // the syncs, for port A2h (the mkIISR)
+	output            vsync_s,
 	output reg        mono,          // resolution graphics, colour set 2 (black/white): the PC-6001 sends no colour
 	                                 // burst then (rtl/pc6001_composite.sv)
 	output reg  [4:0] cidx           // the dot's colour code, for the composite encoder
@@ -86,13 +108,33 @@ reg [8:0] v;   // 0..261
 wire       vactive = v >= V_ACTIVE0 && v < V_ACTIVE0 + 192;
 wire       vactive5 = v >= V5_ACTIVE0 && v < V5_ACTIVE0 + 200;
 
-// mode 5 for the whole frame, decided at its start
-reg        m5 = 0;
-always @(posedge clk) if (ce_pix && h == H_TOTAL - 1 && v == V_TOTAL - 1) m5 <= mk2 && !crt_mode[1];
+// mode 5 or the SR mode for the whole frame, decided at its start
+reg        m5 = 0, srf = 0;
+always @(posedge clk) if (ce_pix && h == H_TOTAL - 1 && v == V_TOTAL - 1) begin
+	m5  <= mk2 && !crt_mode[1] && !(sr && sr_mode);
+	srf <= sr && sr_mode;
+end
 wire       m5_text = crt_mode[2];
 wire       m5_g160 = crt_mode[3];
 
-assign busrq = disp_on && (m5 ? vactive5 && h < H5_BUSRQ : vactive && h < (mk2 ? H_BUSRQ_MK2 : H_BUSRQ));
+// the SR mode
+wire       sr_text = crt_mode[2];
+wire       sr_w40  = crt_mode[1];
+wire       sr_g320 = crt_mode[3];
+wire       sr_l20  = c8[2];
+wire [8:0] sr_lines = !crt_mode[0] && !sr_text ? 9'd204 : 9'd200;
+wire       vactive_sr = v >= V5_ACTIVE0 && v < V5_ACTIVE0 + sr_lines;
+
+// the mkIISR holds the Z80 off for 264 dots in modes 1-4 and 336 in the others (PC6001VX HCLK6064, HCLOCK64)
+localparam H_BUSRQ_SR = 264;
+assign busrq = disp_on && (srf ? vactive_sr && h < H5_BUSRQ && !c8[1] :
+                           m5 ? vactive5 && h < H5_BUSRQ :
+                           vactive && h < (sr ? H_BUSRQ_SR : mk2 ? H_BUSRQ_MK2 : H_BUSRQ));
+assign bus_slow = disp_on && srf && vactive_sr && h < H5_BUSRQ && c8[1];
+assign vrtc_set = ce_pix && h == 0 && v == VS_END;
+assign vrtc_clr = ce_pix && h == 0 && v == VS_END + 1;
+assign hsync_s = HSync;
+assign vsync_s = VSync;
 
 always @(posedge clk) begin
 	if (reset) begin
@@ -160,6 +202,26 @@ always @(posedge clk) begin
 	end
 end
 
+// the SR mode: text rows of 10 or 8 lines, 40 or 80 cells of 2 bytes; bitmap lines
+reg  [3:0] sr_tl;
+reg [11:0] sr_tofs;
+reg  [7:0] sr_gl;
+always @(posedge clk) begin
+	if (ce_pix && h == H_TOTAL - 1) begin
+		if (v == V5_ACTIVE0 - 1) begin
+			sr_tl <= 0; sr_tofs <= 0; sr_gl <= 0;
+		end
+		else if (vactive_sr) begin
+			if (sr_tl == (sr_l20 ? 4'd9 : 4'd7)) begin
+				sr_tl <= 0;
+				sr_tofs <= sr_tofs + (sr_w40 ? 12'd80 : 12'd160);
+			end
+			else sr_tl <= sr_tl + 1'd1;
+			sr_gl <= sr_gl + 1'd1;
+		end
+	end
+end
+
 //----------------------------------------------------------------------------
 // Fetch: for each group of 8 dots, during the dot before it (4 clks). The RAM and the CGROM return data one
 // clk after the address, so the addresses are combinational:
@@ -185,9 +247,32 @@ wire        slot = m5 ? slot5 : fetch_slot;
 reg  [7:0] f_attr, f_data;
 reg  [7:0] s_attr, s_data, s_pat;    // the group being displayed
 
+// The SR mode fetches in slots of 4 dots (16 clks: 8 dots at 14.32 MHz), each for the slot after it: sc 0 the
+// first byte's address (a character / bitmap byte), 1 the second's (its attribute / the next byte), 2 the
+// font's; 15 loads them for display.
+`include "pc6001_sr.svh"
+wire [8:0]  fh = h - 9'd4;
+wire        sr_fetch = srf && vactive_sr && h >= 9'd4 && h < 9'd324;
+wire [6:0]  fslot = fh[8:2];
+wire [3:0]  sc = {fh[1:0], ph};
+wire [6:0]  tcell_sr = sr_w40 ? {1'b0, fslot[6:1]} : fslot;
+wire [15:0] t_addr = {c9, 12'd0} + {4'd0, sr_tofs} + {8'd0, tcell_sr, 1'b0};
+wire [10:0] bx = {2'd0, fslot, 2'b00} + {1'b0, rollx[9:2], sr_g320 ? rollx[1] : 1'b0, 1'b0};
+wire  [8:0] by = {1'b0, sr_gl} + {1'b0, rolly};
+wire [15:0] b_addr0 = {c9[3], sr_gv(bx, by)};
+wire [15:0] b_addr1 = {c9[3], sr_gv(bx + 11'd2, by)};
+reg   [7:0] sf0, sf1, sf2;           // fetched
+reg   [7:0] sd0, sd1, sfont;         // displayed
+reg         spar;                    // 40 columns: the cell's second slot
+
 always @(*) begin
 	vaddr = vram_base;
-	if (m5) begin
+	if (srf) begin
+		vaddr = {c9, 12'd0};
+		if (sr_fetch && sc == 4'd0) vaddr = sr_text ? t_addr : b_addr0;
+		if (sr_fetch && sc == 4'd1) vaddr = sr_text ? t_addr + 16'd1 : b_addr1;
+	end
+	else if (m5) begin
 		vaddr = base5;
 		if (slot5) vaddr = base5 + (ph == 2'd0 ? 16'd0 : m5_text ? 16'h0400 : 16'h2000) + {3'd0, ofs5};
 	end
@@ -196,6 +281,18 @@ always @(*) begin
 		else vaddr = vram_base + 16'h0200 + (ag ? {3'd0, g_ofs} : {7'd0, tcell});
 	end
 	cg_addr = m5 ? {1'b1, f_attr[7], vdata, t5_line} : {2'b00, vdata, t_line};
+	if (srf) cg_addr = sr_l20 ? {1'b1, vdata[7], sf0, sr_tl} : {2'b01, sf0, sr_tl};
+end
+
+always @(posedge clk) begin
+	if (sr_fetch) begin
+		if (sc == 4'd1) sf0 <= vdata;
+		if (sc == 4'd2) sf1 <= vdata;
+		if (sc == 4'd3) sf2 <= cg_data;
+		if (sc == 4'd15) begin
+			sd0 <= sf0; sd1 <= sf1; sfont <= sf2; spar <= fslot[0];
+		end
+	end
 end
 
 always @(posedge clk) begin
@@ -319,28 +416,66 @@ function automatic [3:0] cg2(input set, input [3:0] c);
 	endcase
 endfunction
 
+// The mkIISR's ports 40h-43h (PC6001VX PCZ80_12::SetPalette): colours 12-15 of the graphics tables, and the
+// text colours they correspond to, become the value (both in the table's bit order, {c3, c0, c2, c1}).
+function automatic [3:0] tsw(input [3:0] x);
+	tsw = {x[3], x[0], x[2], x[1]};
+endfunction
+function automatic [3:0] an_p(input [3:0] i);
+	case (i)
+	4'd10: an_p = tsw(pal[3:0]);
+	4'd14: an_p = tsw(pal[7:4]);
+	4'd11: an_p = tsw(pal[11:8]);
+	4'd15: an_p = tsw(pal[15:12]);
+	default: an_p = i;
+	endcase
+endfunction
+function automatic [3:0] cg_p(input set, input [3:0] c);
+	if (c[3:2] == 2'b11 && (!set || pal[16 + c[1:0]])) cg_p = tsw(pal[{c[1:0], 2'b00} +: 4]);
+	else cg_p = cg2(set, c);
+endfunction
+
 wire [8:0] dx5 = h - H5_ACTIVE0;
 wire [2:0] b5 = 3'd7 - dx5[2:0];
-reg  [3:0] pal;           // the mkII's palette index
+
+// the SR mode's dot: di the 14.32 MHz dot in the slot (ph 1 the first of each 7.16 MHz dot, ph 3 the second)
+wire [2:0] di = {dx5[1:0], ph[1]};
+wire [2:0] tb = sr_w40 ? {spar, dx5[1:0]} : di;
+wire [2:0] srow = sr_tl[2:0] & 3'b110;
+wire [7:0] s8 = sd0 << srow;                          // semigraphics: 2 x 4 blocks (PCZ80_12::GetSemi8)
+wire [7:0] tfont = !sr_l20 && sd1[7] ? {{4{s8[7]}}, {4{s8[6]}}} : sfont;
+wire [7:0] gbyte = dx5[1] ? sd1 : sd0;
+reg  [3:0] sr_pix;
 always @(*) begin
-	pal = 4'd0;
-	if (m5) begin
-		if (!(vactive5 && h >= H5_ACTIVE0 && h < H5_ACTIVE0 + 320) || !disp_on) pal = 4'd0;
-		else if (m5_text) pal = s_pat[b5] ? s_attr[3:0] : {css[1], s_attr[6:4]};
-		else if (!m5_g160) pal = cg2(css[2], {css[1], css[0], s_data[b5], s_attr[b5]});
+	if (sr_text) sr_pix = tfont[3'd7 - tb] ? an_p(sd1[3:0]) : an_p({css[1], sd1[6:4]});
+	else if (sr_g320) sr_pix = cg_p(css[2], dx5[0] ? gbyte[7:4] : gbyte[3:0]);
+	else sr_pix = cg_p(css[2], {css[1], css[0], sd1[3'd7 - di], sd0[3'd7 - di]});
+end
+
+reg  [3:0] pal_i;         // the mkII's palette index
+always @(*) begin
+	pal_i = 4'd0;
+	if (srf) begin
+		if (!(vactive_sr && h >= H5_ACTIVE0 && h < H5_ACTIVE0 + 320) || !disp_on) pal_i = 4'd0;
+		else pal_i = sr_pix;
+	end
+	else if (m5) begin
+		if (!(vactive5 && h >= H5_ACTIVE0 && h < H5_ACTIVE0 + 320) || !disp_on) pal_i = 4'd0;
+		else if (m5_text) pal_i = s_pat[b5] ? an_p(s_attr[3:0]) : an_p({css[1], s_attr[6:4]});
+		else if (!m5_g160) pal_i = cg_p(css[2], {css[1], css[0], s_data[b5], s_attr[b5]});
 		else case (dx5[2:1])
-			2'd0: pal = cg2(css[2], {s_data[7:6], s_attr[7:6]});
-			2'd1: pal = cg2(css[2], {s_data[5:4], s_attr[5:4]});
-			2'd2: pal = cg2(css[2], {s_data[3:2], s_attr[3:2]});
-			default: pal = cg2(css[2], {s_data[1:0], s_attr[1:0]});
+			2'd0: pal_i = cg_p(css[2], {s_data[7:6], s_attr[7:6]});
+			2'd1: pal_i = cg_p(css[2], {s_data[5:4], s_attr[5:4]});
+			2'd2: pal_i = cg_p(css[2], {s_data[3:2], s_attr[3:2]});
+			default: pal_i = cg_p(css[2], {s_data[1:0], s_attr[1:0]});
 		endcase
 	end
-	else pal = border || !disp_on ? 4'd8 : mk2_n60(color);
+	else pal_i = border || !disp_on ? 4'd8 : mk2_n60(color);
 end
 
 reg [23:0] rgb2;
 always @(*) begin
-	case (pal)
+	case (pal_i)
 	4'd0:  rgb2 = 24'h141414;  4'd1:  rgb2 = 24'hFFAC00;  4'd2:  rgb2 = 24'h00FFAC;  4'd3:  rgb2 = 24'hACFF00;
 	4'd4:  rgb2 = 24'hAC00FF;  4'd5:  rgb2 = 24'hFF00AC;  4'd6:  rgb2 = 24'h00ACFF;  4'd7:  rgb2 = 24'hACACAC;
 	4'd8:  rgb2 = 24'h141414;  4'd9:  rgb2 = 24'hFF0000;  4'd10: rgb2 = 24'h00FF00;  4'd11: rgb2 = 24'hFFFF00;
@@ -374,9 +509,9 @@ always @(*) begin
 end
 
 always @(posedge clk) begin
-	if (ce_pix) begin
+	if (ce_pix || (sr && ph == 2'd1)) begin
 		{R, G, B} <= mk2 ? rgb2 : rgb;
-		HBlank <= m5 ? h < H5_ACTIVE0 || h >= H5_ACTIVE0 + H_VIS : h >= H_VIS;
+		HBlank <= m5 || srf ? h < H5_ACTIVE0 || h >= H5_ACTIVE0 + H_VIS : h >= H_VIS;
 		VBlank <= v >= V_VIS;
 		HSync  <= h >= HS_START && h < HS_END;
 		VSync  <= v >= VS_START && v < VS_END;
