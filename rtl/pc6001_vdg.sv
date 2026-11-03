@@ -249,7 +249,7 @@ reg  [7:0] s_attr, s_data, s_pat;    // the group being displayed
 
 // The SR mode fetches in slots of 4 dots (16 clks: 8 dots at 14.32 MHz), each for the slot after it: sc 0 the
 // first byte's address (a character / bitmap byte), 1 the second's (its attribute / the next byte), 2 the
-// font's; 15 loads them for display.
+// font's, 4 and 5 the bitmap's next two bytes (for the dot scroll, rollx's low bits); 15 loads them for display.
 `include "pc6001_sr.svh"
 wire [8:0]  fh = h - 9'd4;
 wire        sr_fetch = srf && vactive_sr && h >= 9'd4 && h < 9'd324;
@@ -258,11 +258,12 @@ wire [3:0]  sc = {fh[1:0], ph};
 wire [6:0]  tcell_sr = sr_w40 ? {1'b0, fslot[6:1]} : fslot;
 wire [15:0] t_addr = {c9, 12'd0} + {4'd0, sr_tofs} + {8'd0, tcell_sr, 1'b0};
 wire [10:0] bx = {2'd0, fslot, 2'b00} + {1'b0, rollx[9:2], sr_g320 ? rollx[1] : 1'b0, 1'b0};
+wire  [1:0] sr_fine = sr_g320 ? {1'b0, rollx[0]} : rollx[1:0];   // dots (PCZ80_12::Draw1line3)
 wire  [8:0] by = {1'b0, sr_gl} + {1'b0, rolly};
 wire [15:0] b_addr0 = {c9[3], sr_gv(bx, by)};
 wire [15:0] b_addr1 = {c9[3], sr_gv(bx + 11'd2, by)};
-reg   [7:0] sf0, sf1, sf2;           // fetched
-reg   [7:0] sd0, sd1, sfont;         // displayed
+reg   [7:0] sf0, sf1, sf2, sf3, sf4;   // fetched
+reg   [7:0] sd0, sd1, sd2, sd3, sfont; // displayed
 reg         spar;                    // 40 columns: the cell's second slot
 
 always @(*) begin
@@ -271,6 +272,8 @@ always @(*) begin
 		vaddr = {c9, 12'd0};
 		if (sr_fetch && sc == 4'd0) vaddr = sr_text ? t_addr : b_addr0;
 		if (sr_fetch && sc == 4'd1) vaddr = sr_text ? t_addr + 16'd1 : b_addr1;
+		if (sr_fetch && sc == 4'd4) vaddr = {c9[3], sr_gv(bx + 11'd4, by)};
+		if (sr_fetch && sc == 4'd5) vaddr = {c9[3], sr_gv(bx + 11'd6, by)};
 	end
 	else if (m5) begin
 		vaddr = base5;
@@ -289,8 +292,10 @@ always @(posedge clk) begin
 		if (sc == 4'd1) sf0 <= vdata;
 		if (sc == 4'd2) sf1 <= vdata;
 		if (sc == 4'd3) sf2 <= cg_data;
+		if (sc == 4'd5) sf3 <= vdata;
+		if (sc == 4'd6) sf4 <= vdata;
 		if (sc == 4'd15) begin
-			sd0 <= sf0; sd1 <= sf1; sfont <= sf2; spar <= fslot[0];
+			sd0 <= sf0; sd1 <= sf1; sd2 <= sf3; sd3 <= sf4; sfont <= sf2; spar <= fslot[0];
 		end
 	end
 end
@@ -444,12 +449,17 @@ wire [2:0] tb = sr_w40 ? {spar, dx5[1:0]} : di;
 wire [2:0] srow = sr_tl[2:0] & 3'b110;
 wire [7:0] s8 = sd0 << srow;                          // semigraphics: 2 x 4 blocks (PCZ80_12::GetSemi8)
 wire [7:0] tfont = !sr_l20 && sd1[7] ? {{4{s8[7]}}, {4{s8[6]}}} : sfont;
-wire [7:0] gbyte = dx5[1] ? sd1 : sd0;
+// the bitmap's dots from the slot's group and the next, sr_fine dots on
+wire [2:0] gj = {1'b0, dx5[1:0]} + {1'b0, sr_fine};           // 320: the nibble
+wire [7:0] gbyte = gj[2] ? (gj[1] ? sd3 : sd2) : (gj[1] ? sd1 : sd0);
+wire [3:0] hk = {1'b0, di} + {1'b0, sr_fine, 1'b0};             // 640: the dot
+wire [7:0] hd0 = hk[3] ? sd2 : sd0;
+wire [7:0] hd1 = hk[3] ? sd3 : sd1;
 reg  [3:0] sr_pix;
 always @(*) begin
 	if (sr_text) sr_pix = tfont[3'd7 - tb] ? an_p(sd1[3:0]) : an_p({css[1], sd1[6:4]});
-	else if (sr_g320) sr_pix = cg_p(css[2], dx5[0] ? gbyte[7:4] : gbyte[3:0]);
-	else sr_pix = cg_p(css[2], {css[1], css[0], sd1[3'd7 - di], sd0[3'd7 - di]});
+	else if (sr_g320) sr_pix = cg_p(css[2], gj[0] ? gbyte[7:4] : gbyte[3:0]);
+	else sr_pix = cg_p(css[2], {css[1], css[0], hd1[3'd7 - hk[2:0]], hd0[3'd7 - hk[2:0]]});
 end
 
 reg  [3:0] pal_i;         // the mkII's palette index

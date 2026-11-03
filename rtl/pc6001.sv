@@ -784,8 +784,8 @@ upd7752 vsp
 );
 
 // the mkII mixes the voice in at half the PSG's level: 0..16368 + 16384 +- 16384; the mkIISR the SSG
-// (0..16368), FM (+-8192) and the voice (+-8192) around 32768
-assign audio = sr  ? {2'b00, opn_psg, 4'd0} + 16'd24576 + 16'({{2{opn_fm[15]}}, opn_fm[15:2]}) + 16'({{2{voice[13]}}, voice})
+// (0..16368) and FM (+-16384) in jt12's balance, and the voice (+-8192), from 24576
+assign audio = sr  ? {2'b00, opn_psg, 4'd0} + 16'd24576 + 16'({opn_fm[15], opn_fm[15:1]}) + 16'({{2{voice[13]}}, voice})
              : mk2 ? {2'b00, psg_sound, 4'd0} + 16'd16384 + {{2{voice[13]}}, voice} * 16'sd2
                    : {1'b0, psg_sound, 5'd0};
 

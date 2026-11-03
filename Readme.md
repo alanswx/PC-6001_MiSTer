@@ -190,14 +190,14 @@ as MAME's driver does not run N66SR-BASIC:
   CGROM68, the cartridge), and the bitmap a dot at a time through a block mapped as 00h (x from the address,
   y from CEh/CFh)
 - text 40 or 80 columns by 20 or 25 rows (character and attribute bytes, 16 colours), bitmaps of 320x200 in 16
-  colours or 640x200 in 4, scrolled by CAh-CCh; ports 40h-43h recolour four colours. The 640-dot screens need a
+  colours or 640x200 in 4, scrolled by CAh-CCh (the bitmaps by single dots); ports 40h-43h recolour four colours. The 640-dot screens need a
   14.32 MHz dot clock, so on this model every screen goes out at 14.32 MHz (the others' dots twice).
 - interrupts by FAh/FBh and vectors B8h-BFh, with VRTC; the timer at 56 x (F6h + 1) states
 - the YM2203 (jt03, 4 MHz) instead of the AY-3-8910; the Z80 at 3.58 MHz (28.636 MHz / 8)
 
-In the simulator the menu appears and N66SR-BASIC starts, prints and lists. The menu's colours follow PC6001VX's
-palette (MAME's driver ignores ports 40h-43h). Not done: the bitmaps' fine scroll (by one or two dots), the
-6601SR (its ROMs are not here), the 8251 serial port.
+On the MiSTer and in the simulator the menu appears and N66SR-BASIC starts; SCREEN 2,2,2 with LINE, ROLL and PLAY
+work (BASIC's colours are 1-16, 1 and 9 black). The menu's colours follow PC6001VX's palette (MAME's driver
+ignores ports 40h-43h). Not done: the 6601SR (its ROMs are not here), the 8251 serial port, the voice interrupt.
 
 ## Composite video
 

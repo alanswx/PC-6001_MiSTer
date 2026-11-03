@@ -48,6 +48,7 @@ run mk2_talk 900 --mk2 --no-disk-unit --type '300:5{WAIT100}\n{WAIT100}\nTALK"F2
 # and N66SR-BASIC (80 columns)
 run sr_menu 300 --sr --no-disk-unit
 run sr_basic 700 --sr --no-disk-unit --type '300:6' --type '500:PRINT "HELLO SR"\n'
+run sr_roll 1300 --sr --no-disk-unit --type '300:6' --type '500:SCREEN 2,2,2:LINE(40,20)-(60,180),15,BF:ROLL 3,0:FOR I=0 TO 9000:NEXT\n'
 if [ "${TAPES:-0}" = 1 ]; then
 	run tape_lights_proto 1500 --tape "../refs/software/pc6001/cas/Lights_Out_Hiroshi_Ishioka_/Lights Out (BASIC prototype) {m1p1}.cas" \
 		--type '155:1\n{WAIT30}CLOAD\n' --type '1250:LIST\n'
