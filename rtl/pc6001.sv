@@ -783,11 +783,14 @@ upd7752 vsp
 	.sample(voice)
 );
 
-// the mkII mixes the voice in at half the PSG's level: 0..16368 + 16384 +- 16384; the mkIISR the SSG
-// (0..16368) and FM (+-16384) in jt12's balance, and the voice (+-8192), from 24576
-assign audio = sr  ? {2'b00, opn_psg, 4'd0} + 16'd24576 + 16'({opn_fm[15], opn_fm[15:1]}) + 16'({{2{voice[13]}}, voice})
-             : mk2 ? {2'b00, psg_sound, 4'd0} + 16'd16384 + {{2{voice[13]}}, voice} * 16'sd2
-                   : {1'b0, psg_sound, 5'd0};
+// Signed output from -16384, clamped. The PSG (jt49) or the SR's SSG: 0..1023 x 64, a channel at full
+// volume (0..255) gives 16320 peak to peak, all three just under +32767. The SR's FM (jt03) x 2, in jt12's
+// SSG/FM balance (fm + psg x 32) doubled; the mkII's / SR's voice x 8, about one PSG channel's level.
+wire signed [19:0] snd_psg = {4'd0, sr ? opn_psg : psg_sound, 6'd0};
+wire signed [19:0] snd_fm  = sr ? {{3{opn_fm[15]}}, opn_fm, 1'b0} : 20'sd0;
+wire signed [19:0] snd_vox = sr | mk2 ? {{3{voice[13]}}, voice, 3'd0} : 20'sd0;
+wire signed [19:0] snd_mix = snd_psg + snd_fm + snd_vox - 20'sd16384;
+assign audio = snd_mix > 20'sd32767 ? 16'h7fff : snd_mix < -20'sd32768 ? 16'h8000 : snd_mix[15:0];
 
 //----------------------------------------------------------------------------
 // PC-6031 disk unit at D0h-D3h

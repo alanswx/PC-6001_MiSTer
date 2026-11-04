@@ -24,8 +24,7 @@
 - mkII (started 2026-10-31: memory map, mode 5, palette, mode menu): check on a MiSTer; tapes and cartridges
   made for the mkII; uPD7752 built-in phrases (F40-F44: PC6001VX plays WAV files, no data here); the joystick
   interrupt (INT2); composite for its colours; the PSG port A2 sync bits PC6001VX gives it.
-- PC-6001mkIISR: listen to FM on a MiSTer (the KVMS stream has no audio; in the sim PLAY's FM follows the
-  registers), 25-line text, the voice interrupt (INT4), SR software
+- PC-6001mkIISR: 25-line text, the voice interrupt (INT4), SR software
   (tapes, disks); the 6601SR (SYSTEMROM*.68 are not here); the 8251 at 80h-81h.
 
 ## Last
