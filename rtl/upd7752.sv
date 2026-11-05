@@ -11,6 +11,23 @@
 // targets; the frame's samples move every coefficient linearly from where it is to there. A sample is a pulse
 // (voiced) and/or noise, through five second-order filters with PC6001VX's coefficient tables, one multiplier
 // used in turn. Integer division rounds toward zero, as in the C original.
+//
+// This file is an altered version (a hardware rewrite) of pd7752.cpp, under that file's licence:
+//
+//   uPD7752 flavoured speech synthesis engine. Copyright (c) 2004 cisc. All rights reserved.
+//
+//   This software is provided 'as-is', without any express or implied warranty. In no event will the authors
+//   be held liable for any damages arising from the use of this software.
+//
+//   Permission is granted to anyone to use this software for any purpose, including commercial applications,
+//   and to alter it and redistribute it freely, subject to the following restrictions:
+//
+//   1. The origin of this software must not be misrepresented; you must not claim that you wrote the original
+//      software. If you use this software in a product, an acknowledgment in the product documentation would
+//      be appreciated but is not required.
+//   2. Altered source versions must be plainly marked as such, and must not be misrepresented as being the
+//      original software.
+//   3. This notice may not be removed or altered from any source distribution.
 
 module upd7752
 (

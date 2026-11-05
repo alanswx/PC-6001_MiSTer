@@ -25,8 +25,8 @@ PC-6001mkIISR (1984).
 
 It boots N60-BASIC to "How Many Pages?", takes keyboard input, runs BASIC (including SCREEN 3/4 graphics) and
 loads tapes and disks, in the Verilator simulation and on a MiSTer. The Quartus build fits (43% ALMs, 404 of 553
-block RAMs, worst setup slack 0.299 ns), and the 28 simulator tests in `verilator/run_tests.sh` pass. The current
-build is `releases/PC6001_20261103.rbf`.
+block RAMs, worst setup slack 0.494 ns), and the 28 simulator tests in `verilator/run_tests.sh` pass. The current
+build is `releases/PC6001_20261105.rbf`.
 
 ## OSD
 
