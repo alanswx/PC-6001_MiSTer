@@ -106,7 +106,7 @@ The hint shows only what the tape says. A tape that starts with ten D3h bytes an
 sweep types, and they started every BASIC tape in the corpus. Tapes that need more (Star Wrecker's second CLOAD,
 Kita's Y) say so on their own screens; the hint shows nothing for them.
 
-## On a MiSTer (Mister 126)
+## On a MiSTer
 
 All 73 tapes ran at 7x on 2026-10-30 (`runs/hw126/sweep/drive.py`), with the simulator sweep's steps typed
 through MiSTerKVMS: an MGL loads the tape, then the page count, any setup line, CLOAD, RUN when the motor stops,
@@ -129,7 +129,7 @@ Earlier: Lights Out (.cas) at Normal and 3x, and Tiny Xevious (.p6t) at 3x with 
 
 Bus steal in mode 5: with the 368 of 456 dots PC6001VX and CSCP give, tapes loaded at Normal ended with BASIC's
 pointers a byte off (Chack'n Pop: `?SN Error` at RUN) and Jelda crashed back to the mode menu once running; a
-real mkII runs both at 1x. With 336 or 352 both work (and Jelda runs on Mister 126); the core uses 336
+real mkII runs both at 1x. With 336 or 352 both work (and Jelda runs on a MiSTer); the core uses 336
 (rtl/pc6001_vdg.sv). PC6001VX boosts tape loading by default, so its 1x path does not show this. The sweep
 below was rerun with 336: Jelda reaches its title; the other changes are animation frames and later parts of
 multi-part tapes loaded on their own (Karuizawa, Tanabata 2, Star Arthur 2), whose ends vary run to run.

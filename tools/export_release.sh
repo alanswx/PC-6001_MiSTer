@@ -8,7 +8,7 @@ DEST=${1:?usage: tools/export_release.sh DEST}
 [ -e "$DEST" ] && { echo "$DEST exists; give a new directory"; exit 1; }
 
 # committed files under these paths, minus the exclusions below
-KEEP='^(PC6001\.(sv|qpf|qsf|sdc|srf)|files\.qip|clean\.bat|LICENSE|Readme\.md|\.gitignore|sys/|rtl/|tools/|verilator/|docs/CASSETTE_STATUS\.md)'
+KEEP='^(PC6001\.(sv|qpf|qsf|sdc|srf)|files\.qip|clean\.bat|LICENSE|Readme\.md|\.gitignore|sys/|rtl/|tools/|verilator/|docs/CASSETTE_STATUS\.md|docs/RELEASE_NOTES\.md)'
 # test.d88 holds sectors of a third-party BASIC program; the tests that use it also need refs/ (TAPES=1)
 DROP='^verilator/tests/disk/'
 

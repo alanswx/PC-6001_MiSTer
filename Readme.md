@@ -1,6 +1,6 @@
 # NEC PC-6001 for MiSTer
 
-Work in progress: a MiSTer core for the NEC PC-6001 (1981), the PC-6001mkII (1983), the PC-6601 (1983) and the
+A MiSTer core for the NEC PC-6001 (1981), the PC-6001mkII (1983), the PC-6601 (1983) and the
 PC-6001mkIISR (1984).
 
 ## Status
@@ -13,7 +13,7 @@ PC-6001mkIISR (1984).
 | 8255 mode 2 + sub CPU (keyboard, STICK/STRIG game keys, cassette) | high-level, after PC6001VX |
 | Timer interrupt (2.05 ms, first period half) | done |
 | AY-3-8910 (jt49), joysticks on port A | done; tone pitch matches MAME exactly (SOUND 0,254: 492 Hz); jt49's volume steps are 3 dB, MAME's flatter |
-| Cassette: .p6 / .cas / .p6t images, 100 bytes/s while the motor relay is on; 7x turbo; status bar; next-step hint | done: all 73 tester tapes load at 7x on a MiSTer (and at 3x in the simulator); 16 give the same result at Normal (docs/CASSETTE_STATUS.md) |
+| Cassette: .p6 / .cas / .p6t images, 100 bytes/s while the motor relay is on; 7x turbo; status bar; next-step hint | done: all 73 tapes of the test set load at 7x on a MiSTer (and at 3x in the simulator); 16 give the same result at Normal (docs/CASSETTE_STATUS.md) |
 | Cartridge ROM at 4000-7FFF (up to 16 KB), booted by BASIC's "AB" check | done (12 of 14 carts start; Crowley Manor stops at the same blank screen as in MAME; Touch Panel draws with the mouse as its pad, below) |
 | PC-6031 disk unit (one drive, .d88): its own Z80 running DISK.ROM, 16 KB RAM, a uPD765, the 8255 pair at D0h | done: N60 Extended BASIC formats, saves, lists and loads, in the simulator and on a MiSTer (below) |
 | Touch panel on joystick port 2, worked by the mouse | done: draws in the simulator; on a MiSTer the cursor and taps work (drags not tried yet: the KVM used for testing cannot hold a button). The protocol is from the Touch Panel cartridge's code; no emulator has it |
@@ -119,7 +119,7 @@ cylinder) unless told otherwise, which is how the PC-6001's 1D disks are laid ou
 On a PC-6001 disks are used through the **N60 Extended BASIC** cartridge (PCS-6001R): load it as the
 cartridge, answer "How Many Files?" and "How Many Pages?", then `FILES`, `SAVE"NAME"`, `LOAD"NAME"`, `KILL`,
 `DSKI$` / `DSKO$` and so on. A new disk is formatted with the PC-6001 Series Disk Format Program (a tape, run
-under Extended BASIC). Tested in the simulator and on Mister 126: format, `SAVE`, `FILES`, `LOAD` and `RUN` after
+under Extended BASIC). Tested in the simulator and on a MiSTer: format, `SAVE`, `FILES`, `LOAD` and `RUN` after
 a core reload, with the image on the SD card changed.
 
 The image is held in DDR3 while it is mounted (up to 512 KB) and written back to the file 512 bytes at a time as
