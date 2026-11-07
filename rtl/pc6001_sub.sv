@@ -40,6 +40,9 @@ module pc6001_sub
 	// keyboard
 	input      [10:0] ps2_key,
 	input             kbd_us,          // 1: symbols as printed on a US keyboard; 0: JIS key positions
+	input             inj_strobe,      // a key code typed for the user (rtl/tape_auto.sv), as key 3
+	input       [7:0] inj_code,
+	output            inj_ready,       // no key waiting
 
 	// cassette: one byte at a time from the tape (rtl/pc6001.sv), taken while the cassette is open for loading
 	input             tape_strobe,
@@ -359,6 +362,7 @@ reg        irq_r;
 
 assign irq = irq_r;
 assign cmt_open = cmt_st != 2'd0;
+assign inj_ready = !(req_key1 | req_key2 | req_key3) && !key_ev;
 // PC6001VX SUB6::IsCmtIntrReady: the tape only advances when the sub CPU can pass a byte on at once
 assign tape_ready = st == S_IDLE && cmt_st == 2'd1 && !req_cmtr && !ibf;
 
@@ -410,6 +414,7 @@ always @(posedge clk) begin
 			else if (on_graph || is_func) begin req_key2 <= 1'b1; key_data <= kcode; end
 			else begin req_key3 <= 1'b1; key_data <= kcode; end
 		end
+		else if (inj_strobe && !(req_key1 | req_key2 | req_key3)) begin req_key3 <= 1'b1; key_data <= inj_code; end
 
 		if (ce_cpu) begin
 			// every 300 us, when idle, take the highest priority request

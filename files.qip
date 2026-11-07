@@ -53,6 +53,7 @@ set_global_assignment -name VERILOG_FILE rtl/jt49/jt49_noise.v
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/pc6001_vdg.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/pc6001_sub.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/tape_overlay.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/tape_auto.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/i8255_m0.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/touch_panel.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/touch_mouse.sv

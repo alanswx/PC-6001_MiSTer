@@ -63,6 +63,7 @@ struct Options {
     bool        kbd_us = false;               // --kbd-us: OSD Keyboard = US (symbols); --type then types US keys
     bool        tape_turbo = false;           // --tape-turbo: OSD Tape speed 7x (the OSD default; here Normal)
     bool        tape_overlay = true;          // --no-tape-overlay: OSD Tape overlay Off
+    bool        autostart = false;            // --autostart: OSD Tape auto-start On (the OSD default; here Off)
     struct JoyEv { uint32_t frame; int port; uint32_t bits; };
 struct TouchEv { uint32_t frame; int x, y, pen; };
     std::vector<JoyEv> joy;               // --joy FRAME:PORT:BITS
@@ -93,6 +94,7 @@ static void usage()
 "                         leave it out); --disk-out FILE writes the image as the drive left it\n"
 "  --tape FILE            load a .p6/.cas tape image (OSD Load Tape); --tape-turbo: OSD Tape speed 7x\n"
 "  --no-tape-overlay      OSD Tape overlay Off (no status bar while the tape plays)\n"
+"  --autostart            OSD Tape auto-start On: a mounted tape resets the machine and types what it needs\n"
 "  --after-motor TEXT     type TEXT 20 frames after the tape motor stops (repeatable: one per stop, in order)\n"
 "  --stop-after-motor N   stop once the motor has stopped (after every --after-motor text) and stayed off\n"
 "                         N frames; writes last.png and prints a TAPE line\n"
@@ -177,6 +179,7 @@ static bool parse_args(int argc, char **argv, Options &o)
         else if (a == "--kbd-us") o.kbd_us = true;
         else if (a == "--composite") o.composite = parse_num(next()) % 5;
         else if (a == "--no-tape-overlay") o.tape_overlay = false;
+        else if (a == "--autostart") o.autostart = true;
         else if (a == "--reset-at") o.resets.insert(parse_num(next()));
         else if (a == "--touch") {
             Options::TouchEv t;
@@ -630,6 +633,7 @@ int Sim::run()
     top->composite = opt.composite >= 0;
     top->comp_bw = opt.composite > 0 ? opt.composite : 0;
     top->tape_overlay = opt.tape_overlay;
+    top->tape_autostart = opt.autostart;
     top->tape_rewind = 0;
     top->reset = 1;
     top->ps2_key = 0;

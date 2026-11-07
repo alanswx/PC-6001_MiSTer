@@ -369,3 +369,4 @@ set_global_assignment -name SYSTEMVERILOG_FILE rtl/touch_panel.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/touch_mouse.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/pc6001_composite.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/composite_decoder.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/tape_auto.sv

@@ -1,24 +1,26 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // Tape status bar, from the Sharp X1 core's x1_tape_overlay.sv (tape standard rules 19-24).
 // tape_status turns the tape position into elapsed/total m:ss and a 64-step progress fill and hands one packed
-// word to tape_overlay (video clock) through a toggle handshake. The overlay draws "TAPE > mm:ss/mm:ss x3" and
+// word to tape_overlay (video clock) through a toggle handshake. The overlay draws "TAPE > mm:ss/mm:ss x7" and
 // a progress bar in the bottom-left corner while the deck plays. While the deck is stopped the same box can show
-// the next step (tape standard rules 25-28): "TYPE CLOAD <ret>" or "TYPE RUN <ret>" (hint, from the machine).
-// It never alters the machine.
+// what to type next (tape standard rules 25-28): one or two lines of text from rtl/tape_auto.sv, drawn with the
+// MC6847's internal font (rtl/pc6001_intfont.svh). It never alters the machine.
 `timescale 1ns/1ps
 module tape_status (
-    input  logic        clk,
-    input  logic        loaded,      // a tape is mounted and streaming
-    input  logic        playing,     // deck in PLAY
-    input  logic        fast,        // turbo active
-    input  logic [31:0] position,    // samples (bytes) played (0 after mount/rewind)
-    input  logic [31:0] length,      // samples (bytes) on the tape
-    input  logic [17:0] hz,          // samples (bytes) per second
-    input  logic  [1:0] hint,        // while stopped: 0 none, 1 TYPE CLOAD, 2 TYPE RUN
+    input  logic         clk,
+    input  logic         loaded,      // a tape is mounted and streaming
+    input  logic         playing,     // deck in PLAY
+    input  logic         fast,        // turbo active
+    input  logic  [31:0] position,    // samples (bytes) played (0 after mount/rewind)
+    input  logic  [31:0] length,      // samples (bytes) on the tape
+    input  logic  [17:0] hz,          // samples (bytes) per second
+    input  logic         hint_show,   // while stopped: the hint (rtl/tape_auto.sv)
+    input  logic         hint_two,
+    input  logic [383:0] hint_text,
     // to the video clock
-    output logic [43:0] status,      // held while req != ack
-    output logic        req,
-    input  logic        ack          // asynchronous; synchronised here
+    output logic [427:0] status,      // held while req != ack
+    output logic         req,
+    input  logic         ack          // asynchronous; synchronised here
 );
     logic [15:0] elapsed, total;     // BCD m1 m0 s1 s0
     logic [17:0] frac;
@@ -46,7 +48,8 @@ module tape_status (
     endfunction
 
     wire [31:0] cell_bits = length[31:6] == 0 ? 32'd1 : {6'd0, length[31:6]};
-    wire [43:0] pack = {hint, loaded, playing, fast, fill, elapsed, total};
+    wire [427:0] pack = {hint_text, hint_two, hint_show && loaded && !playing, loaded, playing, fast, fill,
+                         elapsed, total};
 
     initial begin
         elapsed = 0; total = 0; frac = 0; last_pos = 0; last_len = 0; last_hz = 0;
@@ -85,22 +88,22 @@ module tape_status (
 endmodule
 
 module tape_overlay #(parameter logic [3:0] FACTOR = 4'd3) (
-    input  logic        clk,         // video clock
-    input  logic        ce_pix,
-    input  logic        hblank, vblank,
-    input  logic        enable,
-    input  logic [43:0] status,      // from tape_status, stable while req != ack
-    input  logic        req,
-    output logic        ack,
-    input  logic [23:0] rgb_in,
-    output logic [23:0] rgb_out
+    input  logic         clk,         // video clock
+    input  logic         ce_pix,
+    input  logic         hblank, vblank,
+    input  logic         enable,
+    input  logic [427:0] status,      // from tape_status, stable while req != ack
+    input  logic         req,
+    output logic         ack,
+    input  logic  [23:0] rgb_in,
+    output logic  [23:0] rgb_out
 );
-    localparam int CHARS = 21;
-    logic [1:0]  req_sync;
-    logic [43:0] shown;
-    logic [10:0] x, width;
-    logic [9:0]  y, height;
-    logic        line_active, old_hblank, old_vblank;
+    localparam int CHARS = 24;
+    logic [1:0]   req_sync;
+    logic [427:0] shown;
+    logic [10:0]  x, width;
+    logic [9:0]   y, height;
+    logic         line_active, old_hblank, old_vblank;
 
     initial begin
         req_sync = 0; ack = 0; shown = 0; x = 0; y = 0; width = 0; height = 0;
@@ -121,18 +124,30 @@ module tape_overlay #(parameter logic [3:0] FACTOR = 4'd3) (
         end
     end
 
-    wire        bar = enable && shown[41] && shown[40];
-    wire [1:0]  hint = enable && shown[41] && !shown[40] ? shown[43:42] : 2'd0;
-    wire        visible = bar || hint != 0;
-    wire        fast = shown[39];
-    wire [6:0]  fill = shown[38:32];
-    wire [15:0] elapsed = shown[31:16], total = shown[15:0];
+    `include "pc6001_intfont.svh"
+
+    wire         bar = enable && shown[41] && shown[40];
+    wire         hint = enable && shown[42];
+    wire         two = hint && shown[43];
+    wire [383:0] text = shown[427:44];
+    wire         visible = bar || hint;
+    wire         fast = shown[39];
+    wire [6:0]   fill = shown[38:32];
+    wire [15:0]  elapsed = shown[31:16], total = shown[15:0];
+
+    // the hint's width: up to its last character that is not a space
+    logic [4:0] hint_w;
+    always_comb begin
+        hint_w = 5'd1;
+        for (int i = 0; i < CHARS; i++)
+            if (text[383 - 8 * i -: 8] != " " || (two && text[191 - 8 * i -: 8] != " ")) hint_w = 5'(i + 1);
+    end
+
     // Double the overlay on 640-wide and 400-line screens.
     wire        sx = width >= 11'd512, sy = height >= 10'd300;
-    // The box shrinks to the hint: "TYPE CLOAD <ret>" is 12 characters, "TYPE RUN <ret>" 10, one text row.
-    wire [4:0]  chars = bar ? 5'(CHARS) : hint == 2'd1 ? 5'd12 : 5'd10;
+    wire [4:0]  chars = bar ? 5'd21 : hint_w;
     wire [10:0] box_w = {3'd0, chars, 3'd0} + 11'd4;
-    wire [9:0]  box_h = bar ? 10'd18 : 10'd12;
+    wire [9:0]  box_h = bar ? 10'd18 : two ? 10'd22 : 10'd12;
     wire [10:0] x0 = 11'd4;
     wire [9:0]  y0 = height - (sy ? {box_h[8:0], 1'b0} : box_h) - 10'd4;
     wire [10:0] dx = x - x0;
@@ -141,69 +156,43 @@ module tape_overlay #(parameter logic [3:0] FACTOR = 4'd3) (
     wire [9:0]  ly = sy ? {1'b0, dy[9:1]} : dy;
     wire        in_box = x >= x0 && y >= y0 && lx < box_w && ly < box_h;
 
-    // Text row at ly 2..9, x 2..; codes 0-9 digits, 10 ':', 11 '/', 12 T,
-    // 13 A, 14 P, 15 E, 16 x, 17 play, 18 space, 19 Y, 20 C, 21 L, 22 O, 23 D, 24 R, 25 U, 26 N, 27 return.
-    logic [4:0] hint_code;
-    always_comb begin
-        case (col)
-            5'd0: hint_code = 5'd12;  5'd1: hint_code = 5'd19;  5'd2: hint_code = 5'd14;  5'd3: hint_code = 5'd15;
-            5'd4: hint_code = 5'd18;
-            default: hint_code = 5'd18;
-        endcase
-        if (hint == 2'd1) case (col)
-            5'd5: hint_code = 5'd20;  5'd6: hint_code = 5'd21;  5'd7: hint_code = 5'd22;  5'd8: hint_code = 5'd13;
-            5'd9: hint_code = 5'd23;  5'd11: hint_code = 5'd27;
-            default: ;
-        endcase
-        else case (col)
-            5'd5: hint_code = 5'd24;  5'd6: hint_code = 5'd25;  5'd7: hint_code = 5'd26;  5'd9: hint_code = 5'd27;
-            default: ;
-        endcase
-    end
+    // Text rows at ly 2..9 and (the hint's second line) 12..19, x 2..
     wire [10:0] tx = lx - 11'd2;
-    wire [9:0]  ty = ly - 10'd2;
+    wire        row2 = two && ly >= 10'd12;
+    wire [9:0]  ty = ly - (row2 ? 10'd12 : 10'd2);
     wire [4:0]  col = tx[7:3];
-    function automatic logic [4:0] digit(input logic [3:0] d, input logic blank_zero);
-        return blank_zero && d == 0 ? 5'd18 : {1'b0, d};
+
+    function automatic logic [7:0] dig(input logic [3:0] d, input logic blank_zero);
+        return blank_zero && d == 0 ? " " : 8'h30 + {4'd0, d};
     endfunction
-    logic [4:0] code;
+    // the status line: "TAPE > m:ss/ m:ss x7" (03h: the play sign)
+    logic [7:0] st_ch;
     always_comb begin
         case (col)
-            5'd0: code = 5'd12;  5'd1: code = 5'd13;  5'd2: code = 5'd14;  5'd3: code = 5'd15;
-            5'd4: code = 5'd18;  5'd5: code = 5'd17;  5'd6: code = 5'd18;
-            5'd7: code = digit(elapsed[15:12], 1'b1);  5'd8: code = {1'b0, elapsed[11:8]};
-            5'd9: code = 5'd10;  5'd10: code = {1'b0, elapsed[7:4]};  5'd11: code = {1'b0, elapsed[3:0]};
-            5'd12: code = 5'd11;
-            5'd13: code = digit(total[15:12], 1'b1);  5'd14: code = {1'b0, total[11:8]};
-            5'd15: code = 5'd10;  5'd16: code = {1'b0, total[7:4]};  5'd17: code = {1'b0, total[3:0]};
-            5'd18: code = 5'd18;
-            5'd19: code = fast ? 5'd16 : 5'd18;  5'd20: code = fast ? {1'b0, FACTOR} : 5'd18;
-            default: code = 5'd18;
+            5'd0: st_ch = "T";  5'd1: st_ch = "A";  5'd2: st_ch = "P";  5'd3: st_ch = "E";
+            5'd5: st_ch = 8'h03;
+            5'd7: st_ch = dig(elapsed[15:12], 1'b1);  5'd8: st_ch = dig(elapsed[11:8], 1'b0);
+            5'd9: st_ch = ":";  5'd10: st_ch = dig(elapsed[7:4], 1'b0);  5'd11: st_ch = dig(elapsed[3:0], 1'b0);
+            5'd12: st_ch = "/";
+            5'd13: st_ch = dig(total[15:12], 1'b1);  5'd14: st_ch = dig(total[11:8], 1'b0);
+            5'd15: st_ch = ":";  5'd16: st_ch = dig(total[7:4], 1'b0);  5'd17: st_ch = dig(total[3:0], 1'b0);
+            5'd19: st_ch = fast ? "X" : " ";  5'd20: st_ch = fast ? 8'h30 + {4'd0, FACTOR} : " ";
+            default: st_ch = " ";
         endcase
-        if (!bar) code = hint_code;
     end
-    function automatic logic [7:0] glyph(input logic [4:0] c, input logic [2:0] r);
-        logic [63:0] g;
-        case (c)
-            5'd0:  g = 64'h3C666E7666663C00;  5'd1:  g = 64'h1838181818187E00;
-            5'd2:  g = 64'h3C66060C30607E00;  5'd3:  g = 64'h3C66061C06663C00;
-            5'd4:  g = 64'h0C1C3C6C7E0C0C00;  5'd5:  g = 64'h7E607C0606663C00;
-            5'd6:  g = 64'h1C30607C66663C00;  5'd7:  g = 64'h7E060C1830303000;
-            5'd8:  g = 64'h3C66663C66663C00;  5'd9:  g = 64'h3C66663E060C3800;
-            5'd10: g = 64'h0018180018180000;  5'd11: g = 64'h02060C1830604000;
-            5'd12: g = 64'h7E18181818181800;  5'd13: g = 64'h183C66667E666600;
-            5'd14: g = 64'h7C66667C60606000;  5'd15: g = 64'h7E60607C60607E00;
-            5'd16: g = 64'h0000663C183C6600;  5'd17: g = 64'h4060707870604000;
-            5'd19: g = 64'h6666663C18181800;  5'd20: g = 64'h3C66606060663C00;
-            5'd21: g = 64'h6060606060607E00;  5'd22: g = 64'h3C66666666663C00;
-            5'd23: g = 64'h786C6666666C7800;  5'd24: g = 64'h7C66667C786C6600;
-            5'd25: g = 64'h6666666666663C00;  5'd26: g = 64'h66767E7E6E666600;
-            5'd27: g = 64'h02022262FE602000;
-            default: g = 64'h0;
+    wire [7:0] hint_ch = col >= 5'(CHARS) ? 8'h20 : row2 ? text[191 - 8 * col -: 8] : text[383 - 8 * col -: 8];
+    wire [7:0] ch = bar ? st_ch : hint_ch;
+
+    // 01h: Return, 03h: play; 20h-5Fh from the MC6847 font (rows 2-9 of its 12); lower case as upper case
+    wire [7:0] chu = ch >= 8'h60 && ch < 8'h80 ? ch - 8'h20 : ch;
+    logic [7:0] glyph_row;
+    always_comb begin
+        case (chu)
+            8'h01: glyph_row = 8'(64'h02022262FE602000 >> (8 * (7 - ty[2:0])));
+            8'h03: glyph_row = 8'(64'h4060707870604000 >> (8 * (7 - ty[2:0])));
+            default: glyph_row = chu >= 8'h20 && chu < 8'h60 ? intfont(chu[5:0], {1'b0, ty[2:0]} + 4'd2) : 8'h00;
         endcase
-        return g[63 - 8 * r -: 8];
-    endfunction
-    wire [7:0] glyph_row = glyph(code, ty[2:0]);
+    end
     wire text_on = ty < 10'd8 && tx < {3'd0, chars, 3'd0} && glyph_row[3'd7 - tx[2:0]];
     // Progress bar at ly 12..15, 128 px for 64 steps.
     wire bar_area = bar && ly >= 10'd12 && ly < 10'd16 && lx >= 11'd2 && lx < 11'd130;
@@ -212,6 +201,6 @@ module tape_overlay #(parameter logic [3:0] FACTOR = 4'd3) (
     always_comb begin
         rgb_out = rgb_in;
         if (visible && in_box)
-            rgb_out = text_on ? 24'hFFFFFF : bar_on ? 24'h44CC44 : bar_area ? 24'h333333 : 24'h000000;
+            rgb_out = text_on && !bar_area ? 24'hFFFFFF : bar_on ? 24'h44CC44 : bar_area ? 24'h333333 : 24'h000000;
     end
 endmodule

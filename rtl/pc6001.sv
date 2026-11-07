@@ -39,6 +39,7 @@ module pc6001 #(
 	input             tape_turbo,      // OSD: TURBO x while the motor relay is on
 	input             tape_rewind,
 	input             cart_eject,
+	input             tape_autostart,  // OSD: mounting a tape types what it needs (rtl/tape_auto.sv)
 
 	input      [10:0] ps2_key,
 	input             kbd_us,          // keyboard layout: 1 US symbols, 0 JIS positions
@@ -75,7 +76,9 @@ module pc6001 #(
 	output            tape_turbo_on,
 	output     [16:0] tape_position,   // bytes played
 	output     [16:0] tape_length,
-	output      [1:0] tape_hint,       // next step while the deck is stopped: 0 none, 1 CLOAD, 2 RUN
+	output            hint_show,       // what to type, while the deck is stopped (rtl/tape_auto.sv)
+	output            hint_two,
+	output    [383:0] hint_text,
 	output            cart_too_big,    // the image was larger than 16 KB (cut off)
 
 	// PC-6031 disk unit (rtl/pc6031.sv): its firmware is DISK.ROM at 5000h in the ROM download
@@ -194,7 +197,8 @@ wire        busrq;
 // misses the first byte after the name. In turbo the Z80 is not stopped (the VDG has its own RAM port).
 reg         wait_n;
 
-wire reset_dl = reset | (ioctl_download & (ioctl_index[5:0] == 6'd0 | ioctl_index[5:0] == 6'd2));
+wire auto_reset;   // rtl/tape_auto.sv: a tape mounted with Tape auto-start on
+wire reset_dl = reset | auto_reset | (ioctl_download & (ioctl_index[5:0] == 6'd0 | ioctl_index[5:0] == 6'd2));
 wire rs_busy;
 wire cpu_reset = reset_dl | rs_busy;   // and while the ROM store copies the model's ROMs
 
@@ -574,6 +578,7 @@ assign tape_motor = sys_latch[3];
 // 8255 and the sub CPU
 wire [7:0] ppi_dout;
 wire       sub_irq;
+wire       cmt_open;
 wire [7:0] sub_vector;
 wire       crt_on;
 reg        sub_ack;
@@ -596,10 +601,13 @@ pc6001_sub sub
 	.cg_sel(cg_sel),
 	.ps2_key(ps2_key),
 	.kbd_us(kbd_us),
+	.inj_strobe(inj_strobe),
+	.inj_code(inj_code),
+	.inj_ready(inj_ready),
 	.tape_strobe(tape_strobe),
 	.tape_byte(tape_q),
 	.tape_ready(tape_ready),
-	.cmt_open()
+	.cmt_open(cmt_open)
 );
 
 // Tape
@@ -622,12 +630,11 @@ assign tape_position = tape_pos;
 assign tape_length   = tape_len;
 
 // .p6t (P6T2): the byte image, a footer starting "P6", and the image size (4 bytes, little-endian) at the end.
-// After a download the core reads the size from the last four bytes and checks for "P6" there; then only the
-// image plays. The footer's gaps (silence, carrier) are not played. A .p6/.cas has no footer and plays whole.
-reg  [31:0] tape_tail;
-reg   [2:0] p6t_chk = 0;    // 1, 3: wait for tape_q; 2: check "P"; 4: check "6"
-reg  [15:0] p6t_addr;
-wire [15:0] tape_raddr = p6t_chk ? p6t_addr : tape_pos[15:0];
+// After a download rtl/tape_auto.sv reads the footer; then only the image plays. The footer's gaps (silence,
+// carrier) are not played. A .p6/.cas has no footer and plays whole.
+wire        ta_busy, ta_len_set;
+wire [15:0] ta_addr, ta_len;
+wire [15:0] tape_raddr = ta_busy ? ta_addr : tape_pos[15:0];
 always @(posedge clk_sys) begin
 	if (tape_wr) tape_mem[ioctl_addr[15:0]] <= ioctl_dout;
 	tape_q <= tape_mem[tape_raddr];
@@ -640,27 +647,11 @@ always @(posedge clk_sys) begin
 		if (!tape_dl) begin tape_len <= 0; tape_big <= 0; end
 		if (tape_wr && ioctl_addr[24:16] == 0) tape_len <= ioctl_addr[16:0] + 1'd1;
 		if (tape_wr && ioctl_addr[24:16] != 0) tape_big <= 1'b1;
-		if (tape_wr) tape_tail <= {ioctl_dout, tape_tail[31:8]};
 		tape_pos <= 0;
 		tape_tick <= 0;
-		p6t_chk <= 0;
 	end
-	else if (tape_dl) begin
-		// download just ended: look for a P6T footer at the size the last four bytes give
-		if (tape_len >= 17'd6 && tape_tail[31:16] == 0 && tape_tail[15:0] != 0 && tape_tail[16:0] + 17'd6 <= tape_len) begin
-			p6t_addr <= tape_tail[15:0];
-			p6t_chk <= 3'd1;
-		end
-	end
-	else if (p6t_chk != 0) begin
-		case (p6t_chk)
-		3'd2: if (tape_q == "P") p6t_addr <= p6t_addr + 1'd1; else p6t_chk <= 0;
-		3'd4: if (tape_q == "6") tape_len <= {1'b0, tape_tail[15:0]};
-		default: ;
-		endcase
-		if (p6t_chk == 3'd4) p6t_chk <= 0;
-		else if (p6t_chk != 3'd2 || tape_q == "P") p6t_chk <= p6t_chk + 1'd1;
-	end
+	else if (ta_len_set) tape_len <= {1'b0, ta_len};
+	else if (ta_busy) ;
 	else if (tape_rewind) tape_pos <= 0;
 	else if (ce_cpu && tape_motor) begin
 		// 39936 Z80 states per byte (100 bytes/s; TURBO x 100 in turbo, where the Z80 runs TURBO x faster)
@@ -675,24 +666,41 @@ always @(posedge clk_sys) begin
 	end
 end
 
-// Next-step hint (tape standard rules 25-28), only from what the tape says: a tape that starts with a BASIC
-// header (ten D3h bytes, then the name) is loaded with CLOAD, so at its start the hint is "TYPE CLOAD"; when the
-// motor stops after that first file, "TYPE RUN" until Return is pressed. Later stops (a program loading its next
-// parts) show nothing, nor does a tape without the header (machine code: its loading is in its instructions).
-reg  tape_basic = 0, run_hint = 0, first_stop = 0, old_motor = 0, key_tgl = 0;
-always @(posedge clk_sys) begin
-	old_motor <= tape_motor;
-	key_tgl <= ps2_key[10];
-	if (tape_wr && ioctl_addr[24:4] == 0 && ioctl_addr[3:0] < 4'd10) begin
-		if (ioctl_addr[3:0] == 0) tape_basic <= ioctl_dout == 8'hD3;
-		else if (ioctl_dout != 8'hD3) tape_basic <= 1'b0;
-	end
-	if (tape_dl || tape_pos == 0) begin run_hint <= 0; first_stop <= 1'b1; end
-	else if (old_motor && !tape_motor) begin run_hint <= first_stop && tape_basic; first_stop <= 0; end
-	// Return or keypad Enter (both are RETURN in the key map)
-	if (tape_motor || (ps2_key[10] != key_tgl && ps2_key[9] && ps2_key[7:0] == 8'h5A)) run_hint <= 0;
-end
-assign tape_hint = !tape_loaded || tape_motor ? 2'd0 : tape_pos == 0 && tape_basic ? 2'd1 : run_hint ? 2'd2 : 2'd0;
+// What to type for the tape: shown while the deck is stopped, typed after a reset with Tape auto-start on
+// (tape standard rules 25-28)
+wire       inj_strobe, inj_ready;
+wire [7:0] inj_code;
+tape_auto tape_auto
+(
+	.clk(clk_sys),
+	.reset(cpu_reset),
+	.model(model),
+	.ram16k(ram16k),
+	.drives(disk_unit | p66),
+	.enable(tape_autostart),
+	.dl(ioctl_download && ioctl_index[5:0] == 6'd1),
+	.wr(tape_wr && ioctl_addr[24:16] == 0),
+	.addr(ioctl_addr[16:0]),
+	.data(ioctl_dout),
+	.len(tape_len),
+	.rd_busy(ta_busy),
+	.rd_addr(ta_addr),
+	.rd_data(tape_q),
+	.img_len_set(ta_len_set),
+	.img_len(ta_len),
+	.pos(tape_pos),
+	.motor(tape_motor),
+	.cmt_open(cmt_open),
+	.vblank(VBlank),
+	.ps2_key(ps2_key),
+	.inj_ready(inj_ready),
+	.inj_strobe(inj_strobe),
+	.inj_code(inj_code),
+	.auto_reset(auto_reset),
+	.hint_show(hint_show),
+	.hint_two(hint_two),
+	.hint_text(hint_text)
+);
 
 // PSG: port A reads the joystick picked by port B bit 6 (0: joystick 2), active low:
 // b0 up b1 down b2 left b3 right b4 trigger 1 b5 trigger 2 (PC6001VX psgfm.cpp, joystick.cpp). The touch panel

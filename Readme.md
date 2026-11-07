@@ -41,6 +41,7 @@ The menu follows the MiSTer computer-core OSD and tape standards:
 | Memory | top | 32 KB or 16 KB (the PC-6001; the mkII has 64 KB) |
 | Model | Machine | PC-6001 (default), PC-6001mkII (its ROMs in boot1.rom, below), PC-6601 (boot2.rom) or PC-6001mkIISR (boot3.rom) |
 | Tape speed | Machine | 7x (default) or Normal; taken when the motor starts |
+| Tape auto-start | Machine | On (default): mounting a tape resets the machine and types what it needs (below); Off |
 | Remove cartridge | Machine | button: takes the cartridge out and resets to BASIC |
 | Rewind tape | Machine | button |
 | Aspect ratio | Video | |
@@ -54,11 +55,25 @@ The menu follows the MiSTer computer-core OSD and tape standards:
 Model, Memory and Aspect ratio take effect at **Apply and reset** ("Changes pending" shows until then); the others act
 at once.
 
-Next-step hint: while the tape is stopped, the same box says what to type. A tape that starts with a BASIC
-header (ten D3h bytes and a name) shows `TYPE CLOAD ↵` while it is rewound, and `TYPE RUN ↵` once that first
-program has loaded, until Return is pressed. That second step assumes the program is started with RUN, which
-held for every BASIC tape in the sweep. Later stops (a program loading its next parts) and tapes without the
-header (machine code) show nothing; their instructions say what to do.
+Next-step hint and auto-start (rtl/tape_auto.sv): while the tape is stopped, the same box says what to type, and
+with Tape auto-start On the core types it. It is read from the tape as it loads:
+
+- A .p6t's footer (P6T ver.2, as PC6001V/PC6001VX and DLE write it) can give the BASIC mode, the pages and an
+  auto-start command; those are used as they are.
+- Otherwise a tape that starts with a BASIC header (ten D3h bytes and a name) is loaded with CLOAD and started
+  with RUN. Where its first program was saved gives the mode: its text started at C401h on a 16 KB PC-6001
+  (mode 1), at 8401h with 32 KB (mode 2), at 8001h / 8801h / C801h under N60m-BASIC (mode 5, 2 / 3 / 4 pages; on
+  the mkIISR 8001h is N66SR-BASIC, mode 6). The highest page its `SCREEN` statements use raises the page count.
+  Against 404 tapes whose names give mode and pages this matches 69% and gives more pages for 14% (more pages
+  costs only free memory: Return at "How Many Pages?" gives 4).
+- Tapes without the header (machine code) show nothing; their instructions say what to do.
+
+At the start of the tape the box shows the setup and the first command (`MODE 5  PAGES 3` / `TYPE CLOAD ↵`);
+after each stop of the motor the next part (`TYPE RUN ↵`) until Return is pressed. Auto-start follows PC6001VX
+(EL6::SetAutoStart): after a reset it answers the mode menu and "How Many Pages?" (and "How Many Files?" when a
+disk unit is there), then types the command, Return at its line ends, and after CLOAD waits for the tape motor
+to start and stop again. Mounting such a tape resets the machine first, unless a program is waiting for the tape
+(the motor on, or the cassette open for loading), as for a game's second tape.
 
 Turbo: while the motor relay is on, the Z80 runs 7 times as fast (27.96 MHz). The tape bytes, the 2 ms timer and
 the sub CPU's delays all count Z80 states, so a loader sees the same timing it sees at 1x; the PSG and the video

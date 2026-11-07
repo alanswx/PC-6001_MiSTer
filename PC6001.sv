@@ -59,7 +59,7 @@ assign VIDEO_ARY = (!ar) ? 12'd3 : 12'd0;
 // act at once.
 // Status bits: 0 reset, 1 memory, 2 unused (old Fast tape), 3 rewind tape, 4 tape speed, 5 tape overlay,
 // 6 swap Alt/Win keys, 7 remove cartridge, 8 keyboard, 9 touch panel, 10 video, 11-13 B/W colours (the black/white
-// graphics mode on a TV), 14-15 model, 121-122 aspect ratio.
+// graphics mode on a TV), 14-15 model, 16 tape auto-start, 121-122 aspect ratio.
 `include "build_id.v"
 // Tape turbo factor: the Z80 and the tape run TURBO times as fast while the motor relay is on (rtl/pc6001.sv)
 localparam int TURBO = 7;
@@ -86,6 +86,7 @@ localparam CONF_STR = {
 	"P1O[15:14],Model,PC-6001,PC-6001mkII,PC-6601,PC-6001mkIISR;",
 	"P1-;",
 	"P1O[4],Tape speed,", 8'h30 + 8'(TURBO), "x,Normal;",
+	"P1O[16],Tape auto-start,On,Off;",
 	"P1-;",
 	"P1T[7],Remove cartridge;",
 	"P1T[3],Rewind tape;",
@@ -217,7 +218,8 @@ wire rgb_pix;
 wire [7:0] rgb_r, rgb_g, rgb_b;
 wire        tape_motor, tape_loaded, tape_too_big, tape_turbo_on, cart_too_big;
 wire [16:0] tape_position, tape_length;
-wire  [1:0] tape_hint;
+wire         hint_show, hint_two;
+wire [383:0] hint_text;
 
 // Touch panel on joystick port 2 (OSD), worked with the mouse
 wire [7:0] touch_x, touch_y;
@@ -240,6 +242,7 @@ pc6001 #(.TURBO(TURBO)) pc6001
 	.tape_turbo(~status[4]),
 	.tape_rewind(status[3]),
 	.cart_eject(status[7]),
+	.tape_autostart(~status[16]),
 
 	.ps2_key(ps2_key),
 	.kbd_us(status[8]),
@@ -271,7 +274,9 @@ pc6001 #(.TURBO(TURBO)) pc6001
 	.tape_turbo_on(tape_turbo_on),
 	.tape_position(tape_position),
 	.tape_length(tape_length),
-	.tape_hint(tape_hint),
+	.hint_show(hint_show),
+	.hint_two(hint_two),
+	.hint_text(hint_text),
 	.cart_too_big(cart_too_big),
 	.img_mounted(img_mounted),
 	.img_readonly(img_readonly),
@@ -328,7 +333,7 @@ always @(posedge clk_sys) begin
 end
 
 // Tape status bar while the deck plays, next-step hint while it is stopped (tape standard): bytes at 100 per second
-wire [43:0] tape_status_word;
+wire [427:0] tape_status_word;
 wire        tape_status_req, tape_status_ack;
 
 tape_status tape_status
@@ -340,7 +345,9 @@ tape_status tape_status
 	.position({15'd0, tape_position}),
 	.length({15'd0, tape_length}),
 	.hz(18'd100),
-	.hint(tape_hint),
+	.hint_show(hint_show),
+	.hint_two(hint_two),
+	.hint_text(hint_text),
 	.status(tape_status_word),
 	.req(tape_status_req),
 	.ack(tape_status_ack)

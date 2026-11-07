@@ -14,6 +14,7 @@ module top #(
    input         tape_turbo,
    input         tape_overlay,
    input         tape_rewind,
+   input         tape_autostart,
    input         composite,        // the picture through rtl/pc6001_composite.sv
    input   [2:0] comp_bw,          // bw_tv (rtl/pc6001_composite.sv)
 
@@ -92,8 +93,9 @@ wire [7:0]  R, G, B;
 wire        rgb_pix, HSync, VSync, HBlank, VBlank, mono;
 wire  [4:0] cidx;
 wire        tape_turbo_on;
-wire [43:0] tape_status_word;
-wire  [1:0] tape_hint;
+wire [427:0] tape_status_word;
+wire        hint_show, hint_two;
+wire [383:0] hint_text;
 wire        tape_status_req, tape_status_ack;
 
 pc6001 #(.TURBO(TURBO)) pc6001
@@ -106,6 +108,7 @@ pc6001 #(.TURBO(TURBO)) pc6001
    .tape_turbo(tape_turbo),
    .tape_rewind(tape_rewind),
    .cart_eject(1'b0),
+   .tape_autostart(tape_autostart),
    .ps2_key(ps2_key),
    .kbd_us(kbd_us),
    .joy0(joy0), .joy1(joy1),
@@ -129,7 +132,7 @@ pc6001 #(.TURBO(TURBO)) pc6001
    .tape_turbo_on(tape_turbo_on),
    .tape_position(tape_position),
    .tape_length(tape_length),
-   .tape_hint(tape_hint),
+   .hint_show(hint_show), .hint_two(hint_two), .hint_text(hint_text),
    .cart_too_big(),
 
    .img_mounted(img_mounted), .img_readonly(img_readonly), .img_size(img_size),
@@ -153,7 +156,7 @@ tape_status tape_status
    .clk(clk_sys),
    .loaded(tape_loaded), .playing(tape_motor), .fast(tape_turbo_on),
    .position({15'd0, tape_position}), .length({15'd0, tape_length}), .hz(18'd100),
-   .hint(tape_hint),
+   .hint_show(hint_show), .hint_two(hint_two), .hint_text(hint_text),
    .status(tape_status_word), .req(tape_status_req), .ack(tape_status_ack)
 );
 
