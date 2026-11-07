@@ -11,8 +11,16 @@
 //  Against 404 tapes whose names give mode and pages, this gives the same mode and pages for 69% and more pages
 //  for 14%. Pressing Return at "How Many Pages?" gives 4 pages, so more pages costs only free memory.
 //
+//  - a monitor tape: six 9Ch, 0Dh 0Ah, then Intel-hex-like text records (":LLAAAA00 data.. sum") that N60m-BASIC's MON
+//    reads with R, ended by 1Ah. Mode 5 (4 pages), command MON then R0. Hudson Soft's loader (Babbulkund, Punch
+//    Ball Mario Bros., Dezeni Land; 28 tapes here) loads over BASIC's stack: the word it writes at F89Fh replaces
+//    the monitor's return address, so on a mkII without a disk unit the loader runs when R ends. A disk unit's
+//    work area moves the stack (even with 0 files), and the monitor returns to READY; then "G" and that word,
+//    typed after the load, starts it. Pages: 4, or what the loader checks (LD A,(FD8Ch) CP n: Enix's Zunou 4989
+//    stops unless 3).
+//
 //  A .p6t's footer (P6T ver.2, PC6001VX p6t2.cpp) says it directly: BASIC mode, pages, and an auto-start flag
-//  with the keys to type. Those win over the guesses.
+//  with the keys to type. Those win over the guesses (the G above is still added).
 //
 //  The key script is PC6001VX's (p6el.cpp EL6::SetAutoStart, GetAutoKey): a prefix that answers the BASIC menu
 //  and "How Many Pages?" for the model, then the tape's command: its footer's, or CLOAD then RUN for a BASIC
@@ -90,15 +98,36 @@ reg  [2:0] ss;                    // SCREEN statement state
 reg  [2:0] scr_pages;             // the highest page SCREEN names (1 if none)
 reg [31:0] tail;                  // the last four bytes
 
+// monitor tape records
+reg        hex;                   // six 9Ch at the start, then a record
+reg        h_in, h_lo, h_end;     // in a record, the low nibble is next, the records ended
+reg  [3:0] h_hi;
+reg  [8:0] h_i;                   // byte in the record: 0 length, 1-2 address, 3 type, then data
+reg  [7:0] h_len;
+reg [15:0] h_addr;
+reg [15:0] ent;                   // the word written at F89Fh
+reg  [1:0] ent_ok;
+reg [31:0] h_win;                 // the last four data bytes
+reg  [2:0] h_pages;               // a loader's page check (LD A,(FD8Ch) CP n), 0 if none
+wire       h_dig = data >= "0" && data <= "9" || data >= "A" && data <= "F" || data >= "a" && data <= "f";
+wire [3:0] h_nib = data <= "9" ? data[3:0] : data[3:0] + 4'd9;
+wire [7:0] h_byte = {h_hi, h_nib};
+wire [15:0] h_at = h_addr + 16'(h_i - 9'd4);
+
 always @(posedge clk) begin
 	if (dl && wr) begin
 		tail <= {data, tail[31:8]};
 		if (addr == 0) begin
 			basic <= data == 8'hD3;
+			hex <= data == 8'h9C;
+			h_in <= 0; h_end <= 0; ent_ok <= 0; h_pages <= 0;
 			ps <= P_SKIP; have_start <= 0; zrun <= 0; ss <= 0; scr_pages <= 3'd1;
 		end
 		else if (addr < 17'd10) begin
 			if (data != 8'hD3) basic <= 1'b0;
+			// six 9Ch, then the first record's line: 0Dh 0Ah ':'
+			if (addr < 17'd6 ? data != 8'h9C : addr == 17'd6 ? data != 8'h0D : addr == 17'd7 ? data != 8'h0A :
+			    addr == 17'd8 ? data != ":" : 1'b0) hex <= 1'b0;
 		end
 		else if (addr >= 17'd16 && basic) begin
 			case (ps)
@@ -122,6 +151,30 @@ always @(posedge clk) begin
 			end
 			default: ;
 			endcase
+		end
+		if (addr >= 17'd6 && hex && !h_end) begin
+			if (data == ":") begin h_in <= 1'b1; h_lo <= 0; h_i <= 0; end
+			else if (data == 8'h1A) h_end <= 1'b1;
+			else if (h_in && h_dig) begin
+				h_lo <= !h_lo;
+				if (!h_lo) h_hi <= h_nib;
+				else begin
+					h_i <= h_i + 1'd1;
+					case (h_i)
+					9'd0: begin h_len <= h_byte; if (h_byte == 0) h_end <= 1'b1; end
+					9'd1: h_addr[15:8] <= h_byte;
+					9'd2: h_addr[7:0] <= h_byte;
+					9'd3: ;
+					default: if (h_i - 9'd4 < {1'b0, h_len}) begin
+						h_win <= {h_win[23:0], h_byte};
+						if (h_win == 32'h3A8CFDFE && h_byte >= 8'd1 && h_byte <= 8'd4) h_pages <= h_byte[2:0];
+						if (h_at == 16'hF89F) begin ent[7:0] <= h_byte; ent_ok[0] <= 1'b1; end
+						if (h_at == 16'hF8A0) begin ent[15:8] <= h_byte; ent_ok[1] <= 1'b1; end
+					end
+					endcase
+				end
+			end
+			else h_in <= 1'b0;
 		end
 	end
 end
@@ -216,16 +269,34 @@ wire [2:0] g_min = text_start == 16'hC801 ? 3'd4 : text_start == 16'h8801 ? 3'd3
 wire [2:0] g_pages = scr_pages > g_min ? scr_pages : g_min;
 
 wire       use_f = p6t && f_basic != 0 && f_basic <= 8'd6 && f_page != 0 && f_page <= 8'd4;
-wire [3:0] mode  = use_f ? f_basic[3:0] : g_mode;
-wire [2:0] pages = use_f ? f_page[2:0] : g_pages;
+// a monitor tape needs N60m-BASIC's MON (not the PC-6001's BASIC)
+wire       mon   = hex && model != 2'd0;
+wire [3:0] mode  = use_f ? f_basic[3:0] : mon ? 4'd5 : g_mode;
+wire [2:0] pages = use_f ? f_page[2:0] : mon ? (h_pages != 0 ? h_pages : 3'd4) : g_pages;
 wire       need32 = model == 2'd0 && have_start && text_start < 16'hC000 && !use_f;
 
-// the command: the footer's, or CLOAD 0Ah RUN 0Dh for a BASIC tape
+// the command: the footer's, MON 0Dh R0 0Ah for a monitor tape, or CLOAD 0Ah RUN 0Dh for a BASIC tape; then
+// with a disk unit and Hudson's loader: a wait, G and the word at F89Fh, 0Dh
 wire       own_cmd = p6t && f_start && ask_len != 0;
-wire       has_cmd = own_cmd || basic;
-wire [6:0] cmd_len = own_cmd ? ask_len : 7'd10;
+wire       has_cmd = own_cmd || basic || mon;
+wire       g_on    = mon && ent_ok == 2'b11 && drives;
+wire [6:0] base_len = own_cmd ? ask_len : mon ? 7'd7 : 7'd10;
+wire [6:0] cmd_len = base_len + (g_on ? 7'd8 : 7'd0);
+function automatic [7:0] hx(input [3:0] n);
+	hx = n < 4'd10 ? 8'h30 + n : 8'h37 + n;
+endfunction
 function automatic [7:0] cmd_at(input [6:0] i);
-	if (own_cmd) cmd_at = ask[i[5:0]];
+	if (i >= base_len) case (7'(i - base_len))
+	7'd0: cmd_at = 8'h17; 7'd1: cmd_at = 8'd30; 7'd2: cmd_at = "G";
+	7'd3: cmd_at = hx(ent[15:12]); 7'd4: cmd_at = hx(ent[11:8]); 7'd5: cmd_at = hx(ent[7:4]);
+	7'd6: cmd_at = hx(ent[3:0]);
+	default: cmd_at = 8'h0D;
+	endcase
+	else if (own_cmd) cmd_at = ask[i[5:0]];
+	else if (mon) case (i)
+	7'd0: cmd_at = "M"; 7'd1: cmd_at = "O"; 7'd2: cmd_at = "N"; 7'd3: cmd_at = 8'h0D;
+	7'd4: cmd_at = "R"; 7'd5: cmd_at = "0"; default: cmd_at = 8'h0A;
+	endcase
 	else case (i)
 	7'd0: cmd_at = "C"; 7'd1: cmd_at = "L"; 7'd2: cmd_at = "O"; 7'd3: cmd_at = "A"; 7'd4: cmd_at = "D";
 	7'd5: cmd_at = 8'h0A; 7'd6: cmd_at = "R"; 7'd7: cmd_at = "U"; 7'd8: cmd_at = "N";
@@ -263,10 +334,11 @@ wire [3:0] pre_len = model == 2'd0 ? 4'd4 : sr6 ? 4'd8 : 4'd12;
 
 // typing needs the answers: the pages (the PC-6001) or the mode (the others; mode 6 only on the mkIISR)
 wire known = model == 2'd0 ? pages != 0 : (mode != 0 && (mode != 4'd6 || model == 2'd3) && (sr6 || pages != 0));
-wire auto_ok = has_cmd && known;
+// a monitor tape that does not start itself (no F89Fh word; its G address is unknown) is only shown
+wire auto_ok = has_cmd && known && (own_cmd || !mon || ent_ok == 2'b11);
 
 // synthesis translate_off
-always @(posedge clk) if (info_done) $display("[tape_auto] basic %0d start %h scr %0d p6t %0d fb %0d fp %0d st %0d ask %0d mode %0d pages %0d cmd %0d ok %0d", basic, text_start, scr_pages, p6t, f_basic, f_page, f_start, ask_len, mode, pages, has_cmd, auto_ok);
+always @(posedge clk) if (info_done) $display("[tape_auto] hex %0d ent %h/%0d hpg %0d basic %0d start %h scr %0d p6t %0d fb %0d fp %0d st %0d ask %0d mode %0d pages %0d cmd %0d ok %0d", hex, ent, ent_ok, h_pages, basic, text_start, scr_pages, p6t, f_basic, f_page, f_start, ask_len, mode, pages, has_cmd, auto_ok);
 // synthesis translate_on
 
 //----------------------------------------------------------------------------
@@ -351,9 +423,9 @@ reg  [6:0] ci;                    // command byte being read
 reg  [3:0] cs;                    // its part
 reg  [1:0] bs;                    // 0 idle, 1 line 1, 2 line 2
 reg        seg_ok;                // the part exists
-reg [17:0] key, built;
-wire [17:0] key_now = {seg, mode, pages, has_cmd, own_cmd, model, need32 & ram16k, fs == F_DONE, basic};
-wire  [3:0] kseg = key[17:14];   // the part being written
+reg [19:0] key, built;
+wire [19:0] key_now = {seg, mode, pages, has_cmd, own_cmd, model, need32 & ram16k, fs == F_DONE, basic, mon, g_on};
+wire  [3:0] kseg = key[19:16];   // the part being written
 
 // line 1: "PAGES 2", "MODE 5  PAGES 3", "MODE 6", and "  32 KB" when a 16 KB PC-6001 needs 32 KB
 function automatic [7:0] l1_at(input [4:0] i);

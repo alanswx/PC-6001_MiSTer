@@ -66,7 +66,13 @@ with Tape auto-start On the core types it. It is read from the tape as it loads:
   the mkIISR 8001h is N66SR-BASIC, mode 6). The highest page its `SCREEN` statements use raises the page count.
   Against 404 tapes whose names give mode and pages this matches 69% and gives more pages for 14% (more pages
   costs only free memory: Return at "How Many Pages?" gives 4).
-- Tapes without the header (machine code) show nothing; their instructions say what to do.
+- A monitor tape (six 9Ch, then hex text records) is loaded under mode 5 with `MON` and `R0`. Hudson Soft's
+  loader (Babbulkund, Punch Ball Mario Bros., Dezeni Land and others) starts itself by loading over BASIC's
+  stack: the word it writes at F89Fh becomes the monitor's return address. A disk unit's work area moves the
+  stack (even with 0 files), so with one the monitor just says READY; then the hint shows, and auto-start types,
+  `G` and that word (`GF903 ↵`). Other monitor tapes need a `G` address only their instructions give, so they
+  are shown but not typed.
+- Other tapes without the header (machine code) show nothing; their instructions say what to do.
 
 At the start of the tape the box shows the setup and the first command (`MODE 5  PAGES 3` / `TYPE CLOAD ↵`);
 after each stop of the motor the next part (`TYPE RUN ↵`) until Return is pressed. Auto-start follows PC6001VX
