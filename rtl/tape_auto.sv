@@ -20,7 +20,8 @@
 //    stops unless 3).
 //
 //  A .p6t's footer (P6T ver.2, PC6001VX p6t2.cpp) says it directly: BASIC mode, pages, and an auto-start flag
-//  with the keys to type. Those win over the guesses (the G above is still added).
+//  with the keys to type. Those win over the guesses (the G above is still added), except for a monitor tape
+//  whose footer has no keys to type: its mode is then 5, whatever the footer says.
 //
 //  The key script is PC6001VX's (p6el.cpp EL6::SetAutoStart, GetAutoKey): a prefix that answers the BASIC menu
 //  and "How Many Pages?" for the model, then the tape's command: its footer's, or CLOAD then RUN for a BASIC
@@ -268,9 +269,12 @@ wire [2:0] g_min = text_start == 16'hC801 ? 3'd4 : text_start == 16'h8801 ? 3'd3
                    g_mode == 4'd5 || g_mode == 4'd2 ? 3'd2 : 3'd1;
 wire [2:0] g_pages = scr_pages > g_min ? scr_pages : g_min;
 
-wire       use_f = p6t && f_basic != 0 && f_basic <= 8'd6 && f_page != 0 && f_page <= 8'd4;
 // a monitor tape needs N60m-BASIC's MON (not the PC-6001's BASIC)
 wire       mon   = hex && model != 2'd0;
+// the footer's mode and pages, unless it is a monitor tape the footer gives no command for: MON is only in mode 5
+// (Dr. Slump Bubble Daisakusen's footer: auto-start off, mode 2, 2 pages)
+wire       use_f = p6t && f_basic != 0 && f_basic <= 8'd6 && f_page != 0 && f_page <= 8'd4 &&
+                   !(mon && !(f_start && ask_len != 0));
 wire [3:0] mode  = use_f ? f_basic[3:0] : mon ? 4'd5 : g_mode;
 wire [2:0] pages = use_f ? f_page[2:0] : mon ? (h_pages != 0 ? h_pages : 3'd4) : g_pages;
 wire       need32 = model == 2'd0 && have_start && text_start < 16'hC000 && !use_f;

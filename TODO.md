@@ -27,5 +27,18 @@
 - PC-6001mkIISR: 25-line text, the voice interrupt (INT4), SR software
   (tapes, disks); the 6601SR (SYSTEMROM*.68 are not here); the 8251 at 80h-81h.
 
+## Next
+- Wrong-model hint: on the PC-6001, a program that writes a mkII-only port (memory banking F0-F3, C0-C1
+  palette/mode, voice) puts "NEEDS PC-6001mkII: OSD MACHINE > MODEL" in the tape hint box; the same for
+  66/SR-only ports on a mkII. Check for false alarms: the regression tests and a sweep of the tape library.
+  Add regression tests (a mkII tape on the PC-6001 shows the hint; PC-6001 software does not).
+- Load by name: filename tags set everything, so picking the file is all a user does. {mXpY} is read already;
+  add the model ({mk2}, {66}, {sr}: tape auto-start's reset also switches the model), and commands typed
+  before CLOAD (Space Mouse needs "clear 10,&hd5ff"). Multi-tape loads (Slender Island: CLOAD part 1, swap,
+  RUN) as one joined image. A script that tags a collection from neokobe names/readmes and MAME's
+  pc6001/pc6001mk2 lists. The wrong-model hint stays for untagged or mis-tagged files.
+- Composite for the mkII, PC-6601 and SR (testers ask): an RGB -> YIQ encoder feeding the same NTSC decoder; the
+  PC-6001 keeps its colour-code encoder. Tune against PC6001VX's NTSC filter; tests for each model.
+
 ## Last
 - WAV tape input; CSAVE (command 38h bytes out).

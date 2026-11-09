@@ -55,6 +55,8 @@ struct Options {
     std::string basic_rom, cg_rom;        // --rom-dir DIR: DIR/BASICROM.60, DIR/CGROM60.60
     bool        ram16k = false;
     std::string tape_file;                // --tape FILE: .p6/.cas image through ioctl index 1
+    uint32_t    tape2_frame = 0;          // --tape2 FRAME:FILE: another tape mounted at FRAME (a tape swap)
+    std::string tape2_file;
     std::string cart_file;                // --cart FILE: cartridge ROM through ioctl index 2
     std::string disk_rom;                 // DIR/DISK.ROM from --rom-dir: the PC-6031's firmware, at 5000h of boot.rom
     std::string rom_dir = "../rom";       // boot1.rom (the mkII's ROMs) is made from DIR/*.62
@@ -95,6 +97,7 @@ static void usage()
 "  --disk FILE            mount a .d88 (OSD Disk); the PC-6031 unit is there when DIR/DISK.ROM is (--no-disk-unit:\n"
 "                         leave it out); --disk-out FILE writes the image as the drive left it\n"
 "  --tape FILE            load a .p6/.cas tape image (OSD Load Tape); --tape-turbo: OSD Tape speed 7x\n"
+"  --tape2 FRAME:FILE     mount another tape at FRAME, as with the OSD (a game's second tape)\n"
 "  --no-tape-overlay      OSD Tape overlay Off (no status bar while the tape plays)\n"
 "  --autostart            OSD Tape auto-start On: a mounted tape resets the machine and types what it needs\n"
 "  --after-motor TEXT     type TEXT 20 frames after the tape motor stops (repeatable: one per stop, in order)\n"
@@ -180,6 +183,7 @@ static bool parse_args(int argc, char **argv, Options &o)
         else if (a == "--cgrom") o.cg_rom = next();
         else if (a == "--ram16k") o.ram16k = true;
         else if (a == "--tape") o.tape_file = next();
+        else if (a == "--tape2") { if (!pair("FRAME:FILE", o.tape2_frame, o.tape2_file)) return false; }
         else if (a == "--cart") o.cart_file = next();
         else if (a == "--tape-turbo" || a == "--tape-fast") o.tape_turbo = true;
         else if (a == "--kbd-us") o.kbd_us = true;
@@ -618,6 +622,14 @@ void Sim::schedule_text(uint32_t f, const std::string &s)
     }
 }
 
+// Main puts the extension's place in the F1 list ("P6 CASP6T") in index bits 7:6
+static int tape_index(const std::string &file)
+{
+    std::string ext = file.substr(file.find_last_of('.') + 1);
+    for (auto &c : ext) c = (char)tolower((unsigned char)c);
+    return ext == "cas" ? 0x41 : ext == "p6t" ? 0x81 : 0x01;
+}
+
 int Sim::run()
 {
     mkdir_p(opt.out_dir);
@@ -675,10 +687,7 @@ int Sim::run()
         for (uint32_t i = 0; i < opt.tape_delay; i++) clock();
         std::vector<uint8_t> t;
         if (!read_file(opt.tape_file, t)) { fprintf(stderr, "cannot read tape %s\n", opt.tape_file.c_str()); return 2; }
-        // Main puts the extension's place in the F1 list ("P6 CASP6T") in index bits 7:6
-        std::string ext = opt.tape_file.substr(opt.tape_file.find_last_of('.') + 1);
-        for (auto &c : ext) c = (char)tolower((unsigned char)c);
-        ioctl_load(0, t, ext == "cas" ? 0x41 : ext == "p6t" ? 0x81 : 0x01);
+        ioctl_load(0, t, tape_index(opt.tape_file));
         if (!opt.quiet) fprintf(stderr, "[sim] tape: '%s', %zu bytes\n", opt.tape_file.c_str(), t.size());
     }
     if (opt.ram_fill >= 0) {
@@ -692,7 +701,17 @@ int Sim::run()
     auto range = ps2_schedule.equal_range(frame);
     for (auto it = range.first; it != range.second; ++it) ps2_queue.push_back(it->second);
 
-    while (frame <= opt.stop_frame && !done && !Verilated::gotFinish()) clock();
+    bool tape2 = !opt.tape2_file.empty();
+    while (frame <= opt.stop_frame && !done && !Verilated::gotFinish()) {
+        if (tape2 && frame == opt.tape2_frame) {
+            std::vector<uint8_t> t;
+            if (!read_file(opt.tape2_file, t)) { fprintf(stderr, "cannot read tape %s\n", opt.tape2_file.c_str()); return 2; }
+            ioctl_load(0, t, tape_index(opt.tape2_file));
+            if (!opt.quiet) fprintf(stderr, "[sim] tape 2 at frame %u: '%s', %zu bytes\n", frame, opt.tape2_file.c_str(), t.size());
+            tape2 = false;
+        }
+        clock();
+    }
     if (!opt.dump_ram.empty()) {
         FILE *fr = fopen(opt.dump_ram.c_str(), "wb");
         if (!fr) perror(opt.dump_ram.c_str());
