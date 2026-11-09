@@ -3,9 +3,10 @@
 //
 //  The VDG reads a 512-byte attribute plane and a data plane from main RAM (port B0 picks the 16 KB page):
 //  page+000h..1FFh holds one attribute byte per text cell, page+200h.. the characters or the bitmap. In the
-//  alphanumeric modes each cell's attribute drives the VDG mode pins (AS, INT/EXT, CSS, INV); in the graphics
-//  modes the attribute of the first cell (page+000h) selects the mode for the whole picture, as CSCP and
-//  PC6001VX do.
+//  alphanumeric modes each cell's attribute drives the VDG mode pins (AS, INT/EXT, CSS, INV). In the graphics
+//  modes the attribute of the first cell (page+000h) sets the picture's rows and bytes per row (as CSCP and
+//  PC6001VX), and each byte's attribute (page + its offset, 1FFh) its colour or resolution graphics and colour
+//  set (as PC6001V).
 //
 //    attribute: b7 A/G  b6 A/S  b5 INT/EXT  b4 GM0  b3 GM1  b2 GM2  b1 CSS  b0 INV
 //
@@ -280,7 +281,7 @@ always @(*) begin
 		if (slot5) vaddr = base5 + (ph == 2'd0 ? 16'd0 : m5_text ? 16'h0400 : 16'h2000) + {3'd0, ofs5};
 	end
 	else if (fetch_slot) begin
-		if (ph == 2'd0) vaddr = vram_base + tcell;
+		if (ph == 2'd0) vaddr = vram_base + (ag ? {7'd0, g_ofs[8:0]} : {7'd0, tcell});
 		else vaddr = vram_base + 16'h0200 + (ag ? {3'd0, g_ofs} : {7'd0, tcell});
 	end
 	cg_addr = m5 ? {1'b1, f_attr[7], vdata, t5_line} : {2'b00, vdata, t_line};
@@ -340,6 +341,11 @@ wire t_as   = s_attr[6];
 wire t_ext  = s_attr[5];
 wire t_css  = s_attr[1];
 wire t_inv  = s_attr[0];
+// graphics: each byte's own attribute (page + its offset, 512 bytes repeating every 16 rows; PC6001V
+// MC6847::Draw1line1) picks colour or resolution graphics and the colour set for its dots, so a game can mix
+// them on a line (Tiny Xevious mkII's score panel). The rows and bytes per row stay the line's.
+wire b_gm0  = s_attr[4];
+wire b_css  = s_attr[1];
 
 reg        pix;
 reg  [1:0] pix2;
@@ -375,7 +381,7 @@ always @(*) begin
 			color = pix ? C_SG + s_data[6:4] : C_BLACK;
 		end
 	end
-	else if (!gm[0]) begin
+	else if (!b_gm0) begin
 		// colour graphics, 2 bits per dot
 		if (g_wide) case (dx[3:2])   // 64 dots wide: each dot 4 wide
 			2'd0: pix2 = s_data[7:6];
@@ -389,12 +395,12 @@ always @(*) begin
 			2'd2: pix2 = s_data[3:2];
 			default: pix2 = s_data[1:0];
 		endcase
-		color = C_SG + {css_g, pix2};
+		color = C_SG + {b_css, pix2};
 	end
 	else begin
 		// resolution graphics, 1 bit per dot
 		pix = g_wide ? s_data[3'd7 - dx[3:1]] : s_data[3'd7 - bit_n];
-		color = css_g ? (pix ? C_M4_WHITE : C_M4_BLACK) : (pix ? C_M4_GREEN : C_M4_DGREEN);
+		color = b_css ? (pix ? C_M4_WHITE : C_M4_BLACK) : (pix ? C_M4_GREEN : C_M4_DGREEN);
 	end
 	if (!disp_on) color = C_BLACK;
 end
