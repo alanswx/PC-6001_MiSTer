@@ -591,6 +591,7 @@ pc6001_sub sub
 	.mk2(mk2),
 	.addr(A[1:0]),
 	.rd(io_rd & sel_ppi),
+	.rd_act(io_cyc & ~rd_n),
 	.wr(io_wr & sel_ppi),
 	.din(cpu_dout),
 	.dout(ppi_dout),

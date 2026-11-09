@@ -26,6 +26,7 @@ module pc6001_sub
 	// Z80 side
 	input       [1:0] addr,
 	input             rd,              // one clk per access
+	input             rd_act,          // a read is on (RD low), for its end
 	input             wr,
 	input       [7:0] din,
 	output reg  [7:0] dout,
@@ -60,6 +61,7 @@ module pc6001_sub
 reg       mode2;          // group A mode 2
 reg [7:0] porta, porta_buf, portb, portc;
 reg       ibf, obf;       // obf = 1: output buffer empty (the signal is high)
+reg       rd_pend;        // port A is being read: it empties when RD goes high
 reg       rie, wie;
 
 wire      pc_int = (obf & wie) | (ibf & rie);
@@ -94,7 +96,7 @@ always @(posedge clk) begin
 		mode2 <= 0;
 		porta <= 0; porta_buf <= 0; portb <= 0; portc <= 0;
 		crt <= 1'b1;
-		ibf <= 0; obf <= 1;
+		ibf <= 0; obf <= 1; rd_pend <= 0;
 		rie <= 0; wie <= 0;
 	end
 	else begin
@@ -102,7 +104,11 @@ always @(posedge clk) begin
 			porta_buf <= sub_wdata;
 			ibf <= 1'b1;
 		end
-		if ((rd && addr == 2'd0) || int_ack) begin
+		// IBF falls at the end of the read (8255): cleared at its start, the sub CPU's next byte could reach the
+		// bus before the Z80 takes the data, and the byte read would be lost
+		if (rd && addr == 2'd0) rd_pend <= 1'b1;
+		if ((rd_pend && !rd_act) || int_ack) begin
+			rd_pend <= 1'b0;
 			if (mode2) begin
 				if (ibf) porta <= porta_buf;
 				ibf <= 1'b0;
@@ -447,8 +453,11 @@ always @(posedge clk) begin
 					if (st != S_KEY1 && st != S_CMTE) begin ev_dat <= 1'b1; ev_cnt <= W_DATA; ev_wait <= W_DATA; end
 				end
 				else begin
+					// the data is out: withdraw the request, for programs that poll with interrupts off (PC6001VX
+					// SUB6::OutData). Left up, it is taken later, out of turn, and empties port A.
 					ev_dat <= 1'b0;
 					sub_wr <= 1'b1;
+					irq_r <= 1'b0;
 					st <= S_IDLE;
 					case (st)
 					S_JOY:  begin sub_wdata <= joy_code; req_joy <= 0; end
