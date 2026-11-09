@@ -44,6 +44,8 @@ struct Options {
     std::vector<TypeCmd> types;
     std::vector<std::string> after_motor; // --after-motor TEXT: typed when the tape motor stops (one per stop)
     uint32_t    tape_end_stop = 0;        // --stop-after-motor N: end when the motor has stayed off N frames
+    uint32_t tape_delay = 0;              // --tape-delay N: N clocks more before the tape is mounted
+    int ram_fill = -1;                    // --ram-fill V: the RAM starts as V (0-255), or random (r)
     std::string dump_ram;                 // --dump-ram FILE: the 32 KB RAM at 8000h at the end (the mkII: all 64 KB)
     uint32_t    nudge = 0;                // --nudge N: idle N frames with tape left: press Space, then Return (4 times)
     uint32_t    type_press = 4, type_release = 4;
@@ -98,6 +100,8 @@ static void usage()
 "  --after-motor TEXT     type TEXT 20 frames after the tape motor stops (repeatable: one per stop, in order)\n"
 "  --stop-after-motor N   stop once the motor has stopped (after every --after-motor text) and stayed off\n"
 "                         N frames; writes last.png and prints a TAPE line\n"
+"  --tape-delay N         mount the tape N clocks later (moves an auto-start reset within the frame)\n"
+"  --ram-fill V           start with every RAM byte V (0-255), or random bytes (r), as after other software ran\n"
 "  --dump-ram FILE        write the RAM (8000-FFFF, 32 KB; --mk2 0000-FFFF) to FILE at the end\n"
 "  --nudge N              with --stop-after-motor: when the machine waits N frames with tape left, press\n"
 "                         Space, then Return (up to 4 presses), as a user reading a title screen would\n"
@@ -150,6 +154,8 @@ static bool parse_args(int argc, char **argv, Options &o)
         else if (a == "--stop-at-frame") o.stop_frame = parse_num(next());
         else if (a == "--quiet") o.quiet = true;
         else if (a == "--after-motor") o.after_motor.push_back(next());
+        else if (a == "--tape-delay") o.tape_delay = parse_num(next());
+        else if (a == "--ram-fill") { std::string v = next(); o.ram_fill = v == "r" ? 256 : std::stoi(v, nullptr, 0); }
         else if (a == "--dump-ram") o.dump_ram = next();
         else if (a == "--nudge") o.nudge = parse_num(next());
         else if (a == "--stop-after-motor") o.tape_end_stop = parse_num(next());
@@ -666,6 +672,7 @@ int Sim::run()
         top->reset = 0;
     }
     if (!opt.tape_file.empty()) {
+        for (uint32_t i = 0; i < opt.tape_delay; i++) clock();
         std::vector<uint8_t> t;
         if (!read_file(opt.tape_file, t)) { fprintf(stderr, "cannot read tape %s\n", opt.tape_file.c_str()); return 2; }
         // Main puts the extension's place in the F1 list ("P6 CASP6T") in index bits 7:6
@@ -673,6 +680,13 @@ int Sim::run()
         for (auto &c : ext) c = (char)tolower((unsigned char)c);
         ioctl_load(0, t, ext == "cas" ? 0x41 : ext == "p6t" ? 0x81 : 0x01);
         if (!opt.quiet) fprintf(stderr, "[sim] tape: '%s', %zu bytes\n", opt.tape_file.c_str(), t.size());
+    }
+    if (opt.ram_fill >= 0) {
+        uint32_t x = 12345;
+        for (int i = 0; i < 0x10000; i++) {
+            x = x * 1103515245u + 12345u;
+            top->rootp->top__DOT__pc6001__DOT__ram__DOT__mem[i] = opt.ram_fill > 255 ? (uint8_t)(x >> 16) : (uint8_t)opt.ram_fill;
+        }
     }
     schedule_typing();
     auto range = ps2_schedule.equal_range(frame);
