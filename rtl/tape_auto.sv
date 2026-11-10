@@ -94,7 +94,10 @@ module tape_auto
 	output            hint_show,
 	output            hint_two,
 	output    [383:0] hint_text,
-	output            hint_wait       // "MOUNT THE NEXT TAPE": a program has waited a second at the tape's end
+	output            hint_force,     // "MOUNT THE NEXT TAPE" or the wrong-model hint: shown over the tape bar, and
+	                                  // without a tape
+	input             need_mk2,       // the program wrote a port only a later model has (rtl/pc6001.sv)
+	input             need_sr
 );
 
 //----------------------------------------------------------------------------
@@ -420,6 +423,8 @@ wire auto_ok = has_cmd && known && (own_cmd || !mon || ent_ok == 2'b11);
 // the list's model, when it is above the running one and its ROMs are there (a PC-6001 tape runs on the others)
 wire [1:0] l_m = 2'(l_model - 3'd1);
 wire       switch = enable && l_hit && l_model != 0 && l_m > model && models[l_m];
+// above it and not switched to: only the wrong-model hint, no typing
+wire       l_above = l_hit && l_model != 0 && l_m > model && !switch;
 
 // synthesis translate_off
 always @(posedge clk) if (info_done) $display("[tape_auto] list crc %h hit %0d model %0d mode %0d pages %0d cmd %0d hint %0d switch %0d",
@@ -453,7 +458,7 @@ always @(posedge clk) begin
 
 	// a new tape: reset and type, unless a program waits for it; first the list's model
 	model_set <= 1'b0;
-	if (info_done && enable && (auto_ok || switch) && !motor && !cmt_open) begin
+	if (info_done && enable && (auto_ok && !l_above || switch) && !motor && !cmt_open) begin
 		rst_cnt <= 5'd31;
 		if (switch) begin model_set <= 1'b1; model_req <= l_m; end
 	end
@@ -462,7 +467,7 @@ always @(posedge clk) begin
 	if (reset) typing <= 1'b0;
 	else if (old_reset) begin
 		// after a reset, a tape at its start that can be typed is
-		if (enable && auto_ok && pos == 0 && fs == F_DONE) begin
+		if (enable && auto_ok && !l_above && pos == 0 && fs == F_DONE) begin
 			typing <= 1'b1; ip <= 0; twait <= 9'd60; rel_on <= 0; rel_off <= 0; pend <= 0;
 		end
 	end
@@ -603,6 +608,32 @@ always @(posedge clk) begin
 end
 wire l_show = l_cnt != 0 && !hint_wait;
 
+// The wrong model: a program wrote a port the running model lacks (a mkII's on the PC-6001, a mkIISR's on the
+// mkII or PC-6601), or the game list's model is above the running one and auto-start could not switch. Once a
+// tape, or a reset other than auto-start's; for 10 s of a stopped tape, or until a key.
+reg  [9:0] m_cnt;
+reg        m_done, m_sr, m_key, m_auto;
+always @(posedge clk) begin
+	m_key <= ps2_key[10];
+	// a reset that began as auto-start's (the ROM copy that follows on the later models holds it longer)
+	if (auto_reset) m_auto <= 1'b1;
+	else if (!reset) m_auto <= 1'b0;
+	if (dl || (reset && !auto_reset && !m_auto)) begin m_done <= 0; m_cnt <= 0; end
+	else if (!m_done && (need_mk2 || need_sr || (info_done && l_above))) begin
+		m_done <= 1'b1; m_cnt <= 10'd600;
+		m_sr <= need_sr || (!need_mk2 && l_above && l_m == 2'd3);
+		// synthesis translate_off
+		$display("[tape_auto] wrong model: needs %s", need_sr || (!need_mk2 && l_above && l_m == 2'd3) ? "SR" : "mkII");
+		// synthesis translate_on
+	end
+	else if (ps2_key[10] != m_key && ps2_key[9]) m_cnt <= 0;
+	else if (frame && m_cnt != 0 && !motor) m_cnt <= m_cnt - 1'd1;
+end
+wire m_show = m_cnt != 0 && !hint_wait;
+localparam [191:0] M_MK2 = "MADE FOR THE PC-6001MKII";
+localparam [191:0] M_SR  = "MADE FOR THE MKIISR     ";
+localparam [191:0] M_SET = "SET OSD MACHINE > MODEL ";
+
 // A program waiting at the tape's end (the motor on, the cassette open, nothing left) for a second: a game's next
 // tape. Shown over the tape bar, whatever the tape's command.
 reg  [5:0] wcnt;
@@ -612,16 +643,18 @@ always @(posedge clk) begin
 end
 localparam [191:0] NEXT = "MOUNT THE NEXT TAPE     ";
 
-assign hint_wait = wcnt == 6'd63;
-assign hint_show = hint_wait || l_show || (ready && fs == F_DONE && has_cmd && seg_ok && !motor && (seg == 0 ? pos == 0 : !hide));
-assign hint_two  = l_show ? l_two : !hint_wait && seg == 0 && l1_on;
+wire   hint_wait = wcnt == 6'd63;
+assign hint_force = hint_wait || m_show;
+assign hint_show = hint_wait || m_show || l_show || (ready && fs == F_DONE && has_cmd && seg_ok && !motor && (seg == 0 ? pos == 0 : !hide));
+assign hint_two  = m_show || (l_show ? l_two : !hint_wait && seg == 0 && l1_on);
 
 genvar g;
 generate
 	for (g = 0; g < 24; g = g + 1) begin : txt
-		assign hint_text[383 - 8 * g -: 8] = hint_wait ? NEXT[191 - 8 * g -: 8] : l_show ? l_text[383 - 8 * g -: 8] :
-		                                     hint_two ? l1[g] : l2[g];
-		assign hint_text[191 - 8 * g -: 8] = l_show ? l_text[191 - 8 * g -: 8] : l2[g];
+		assign hint_text[383 - 8 * g -: 8] = hint_wait ? NEXT[191 - 8 * g -: 8] :
+		                                     m_show ? (m_sr ? M_SR[191 - 8 * g -: 8] : M_MK2[191 - 8 * g -: 8]) :
+		                                     l_show ? l_text[383 - 8 * g -: 8] : hint_two ? l1[g] : l2[g];
+		assign hint_text[191 - 8 * g -: 8] = m_show ? M_SET[191 - 8 * g -: 8] : l_show ? l_text[191 - 8 * g -: 8] : l2[g];
 	end
 endgenerate
 

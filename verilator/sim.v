@@ -94,7 +94,7 @@ wire        rgb_pix, HSync, VSync, HBlank, VBlank, mono;
 wire  [4:0] cidx;
 wire        tape_turbo_on;
 wire [427:0] tape_status_word;
-wire        hint_show, hint_two, hint_wait;
+wire        hint_show, hint_two, hint_force;
 wire [383:0] hint_text;
 wire        tape_status_req, tape_status_ack;
 
@@ -121,7 +121,7 @@ pc6001 #(.TURBO(TURBO)) pc6001
    .tape_rewind(tape_rewind),
    .cart_eject(1'b0),
    .tape_autostart(tape_autostart),
-   .m4col(comp_bw),
+   .m4col(composite && model_r != 2'd0 ? 3'd4 : comp_bw),
    .ps2_key(ps2_key),
    .kbd_us(kbd_us),
    .joy0(joy0), .joy1(joy1),
@@ -145,7 +145,7 @@ pc6001 #(.TURBO(TURBO)) pc6001
    .tape_turbo_on(tape_turbo_on),
    .tape_position(tape_position),
    .tape_length(tape_length),
-   .hint_show(hint_show), .hint_two(hint_two), .hint_text(hint_text), .hint_wait(hint_wait),
+   .hint_show(hint_show), .hint_two(hint_two), .hint_text(hint_text), .hint_force(hint_force),
    .model_set(model_set), .model_req(model_req),
    .cart_too_big(),
 
@@ -168,7 +168,7 @@ pc6001 #(.TURBO(TURBO)) pc6001
 tape_status tape_status
 (
    .clk(clk_sys),
-   .loaded(tape_loaded), .playing(tape_motor && !hint_wait), .fast(tape_turbo_on),
+   .loaded(tape_loaded | hint_force), .playing(tape_motor && !hint_force), .fast(tape_turbo_on),
    .position({15'd0, tape_position}), .length({15'd0, tape_length}), .hz(18'd100),
    .hint_show(hint_show), .hint_two(hint_two), .hint_text(hint_text),
    .status(tape_status_word), .req(tape_status_req), .ack(tape_status_ack)
@@ -179,7 +179,7 @@ wire [7:0] c_r, c_g, c_b;
 pc6001_composite pc6001_composite
 (
    .clk(clk_sys), .reset(reset), .mono(mono), .bw_tv(comp_bw),
-   .cidx(cidx), .hs_in(HSync), .vs_in(VSync), .hb_in(HBlank), .vb_in(VBlank),
+   .cidx(cidx), .rgb_in(model_r != 2'd0), .r_in(R), .g_in(G), .b_in(B), .hs_in(HSync), .vs_in(VSync), .hb_in(HBlank), .vb_in(VBlank),
    .ce_pix(c_pix), .r(c_r), .g(c_g), .b(c_b), .hs(c_hs), .vs(c_vs), .hb(c_hb), .vb(c_vb)
 );
 assign ce_pix = composite ? c_pix : rgb_pix;

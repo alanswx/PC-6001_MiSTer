@@ -51,6 +51,12 @@ run mk2_talk 900 --mk2 --no-disk-unit --type '300:5{WAIT100}\n{WAIT100}\nTALK"F2
 run sr_menu 300 --sr --no-disk-unit
 run sr_basic 700 --sr --no-disk-unit --type '300:6' --type '500:PRINT "HELLO SR"\n'
 run sr_roll 1300 --sr --no-disk-unit --type '300:6' --type '500:SCREEN 2,2,2:LINE(40,20)-(60,180),15,BF:ROLL 3,0:FOR I=0 TO 9000:NEXT\n'
+# OSD Video = Composite on the later models (rtl/pc6001_composite.sv, their RGB as NTSC): the mkII's and the SR's menus
+run mk2_composite 300 --mk2 --composite 0
+run sr_composite 300 --sr --no-disk-unit --composite 0
+# the wrong-model hint (rtl/tape_auto.sv): a mkII port written on the PC-6001, an SR port on the mkII
+run wrong_mk2 700 --type '155:2\n{WAIT30}OUT &HF0,&H71\n'
+run wrong_sr 900 --mk2 --no-disk-unit --type '300:1{WAIT100}\n{WAIT60}OUT &HC8,0\n'
 if [ "${TAPES:-0}" = 1 ]; then
 	run tape_lights_proto 1500 --tape "../refs/software/pc6001/cas/Lights_Out_Hiroshi_Ishioka_/Lights Out (BASIC prototype) {m1p1}.cas" \
 		--type '155:1\n{WAIT30}CLOAD\n' --type '1250:LIST\n'
@@ -82,6 +88,7 @@ if [ "${TAPES:-0}" = 1 ]; then
 	# mkII mode 5 160x200 in 16 colours (SCREEN 3, C1 = 09h): bars of colours 1-16, 10 dots each
 	m=(--type '300:5{WAIT100}\n{WAIT60}\n10 SCREEN 3,2,2:CLS\n{WAIT20}20 FOR I=0 TO 15:LINE(I*10,0)-(I*10+9,99),I+1,BF:NEXT\n{WAIT20}30 GOTO 30\n{WAIT20}RUN\n')
 	run mk2_screen3 3300 --mk2 --no-disk-unit "${m[@]}"
+	run mk2_screen3_composite 3300 --mk2 --no-disk-unit --composite 0 "${m[@]}"
 	# OSD B/W colours on the RGB picture (rtl/pc6001_vdg.sv, PC6001VX's colour table): mode 4 stripes on the mkII
 	# (N60 BASIC, mode 2), Red/Blue: colour set 2, even-dot stripes blue, odd-dot red, the box white
 	m=(--type '300:2{WAIT100}2\n{WAIT60}10 SCREEN 4,2,2:COLOR 1,0,1:CLS\n{WAIT20}20 FOR X=0 TO 62 STEP 2:LINE(X,0)-(X,80):NEXT\n{WAIT20}30 FOR X=129 TO 191 STEP 2:LINE(X,0)-(X,80):NEXT\n{WAIT20}40 LINE(0,100)-(255,150),,BF:FOR I=1 TO 900:NEXT:COLOR 1,0,2\n{WAIT20}50 GOTO 50\n{WAIT20}RUN\n')
@@ -93,6 +100,9 @@ if [ "${TAPES:-0}" = 1 ]; then
 	run gamelist_smouse 3000 --tape "$K/Space Mouse (Akihisa Kanda)/Space Mouse [CT cas]/Space Mouse {m2p2 clear 10,&hd5ff}.cas" \
 		--tape-turbo --autostart
 	run gamelist_portopia 1500 --all-roms --tape-turbo --autostart \
+		--tape "$K/Portopia Renzoku Satsujin Jiken (Yuji Horii - Enix)/Portopia Renzoku Satsujin Jiken [CT]/Portopia Renzoku Satsujin Jiken {m2p1}.cas"
+	# without the mkII's ROMs the list cannot switch: the hint, and nothing typed
+	run gamelist_wrong 400 --tape-turbo --autostart \
 		--tape "$K/Portopia Renzoku Satsujin Jiken (Yuji Horii - Enix)/Portopia Renzoku Satsujin Jiken [CT]/Portopia Renzoku Satsujin Jiken {m2p1}.cas"
 	# the PC-6601's built-in drive (rtl/fdc66.sv): N66-BASIC lists and loads TEST from the PC-6031 test disk
 	run p66_disk 1700 --p66 --disk tests/disk/test.d88 \

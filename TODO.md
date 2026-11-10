@@ -24,19 +24,17 @@
   PC-6031 port; 6601 software.
 - mkII (started 2026-10-31: memory map, mode 5, palette, mode menu): check on a MiSTer; tapes and cartridges
   made for the mkII; uPD7752 built-in phrases (F40-F44: PC6001VX plays WAV files, no data here); the joystick
-  interrupt (INT2); composite for its colours; the PSG port A2 sync bits PC6001VX gives it.
+  interrupt (INT2); the PSG port A2 sync bits PC6001VX gives it.
 - PC-6001mkIISR: 25-line text, the voice interrupt (INT4), SR software
   (tapes, disks); the 6601SR (SYSTEMROM*.68 are not here); the 8251 at 80h-81h.
 
 ## Next
-- Wrong-model hint: on the PC-6001, a program that writes a mkII-only port (memory banking F0-F3, C0-C1
-  palette/mode, voice) puts "NEEDS PC-6001mkII: OSD MACHINE > MODEL" in the tape hint box; the same for
-  66/SR-only ports on a mkII. Check for false alarms: the regression tests and a sweep of the tape library.
-  Add regression tests (a mkII tape on the PC-6001 shows the hint; PC-6001 software does not).
+- Wrong-model hint (done: rtl/tape_auto.sv): watch the testers' reports for false alarms (C1-C3, F0-F3, E0-E3
+  written on a PC-6001; C8 with b0 = 0, 40-43, 60-6F on a mkII).
 - Game list (done: rtl/pc6001_gamelist.svh from tools/gamelist.py, 571 tapes): more collections and testers'
   notes; a disk list (.d88) the same way; the hint for Tape auto-start Off (shown only once typing ends now).
-- Composite for the mkII, PC-6601 and SR (testers ask): an RGB -> YIQ encoder feeding the same NTSC decoder; the
-  PC-6001 keeps its colour-code encoder. Tune against PC6001VX's NTSC filter; tests for each model.
+- Composite for the mkII, PC-6601 and SR (done: their RGB as NTSC into the same decoder): tune against PC6001VX's
+  NTSC filter and photos of real machines; the SR's 640-dot modes.
 
 ## Last
 - WAV tape input; CSAVE (command 38h bytes out).

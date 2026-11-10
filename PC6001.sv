@@ -233,7 +233,7 @@ wire rgb_pix;
 wire [7:0] rgb_r, rgb_g, rgb_b;
 wire        tape_motor, tape_loaded, tape_too_big, tape_turbo_on, cart_too_big;
 wire [16:0] tape_position, tape_length;
-wire         hint_show, hint_two, hint_wait;
+wire         hint_show, hint_two, hint_force;
 wire [383:0] hint_text;
 
 // Touch panel on joystick port 2 (OSD), worked with the mouse
@@ -258,7 +258,7 @@ pc6001 #(.TURBO(TURBO)) pc6001
 	.tape_rewind(status[3]),
 	.cart_eject(status[7]),
 	.tape_autostart(~status[16]),
-	.m4col(status[13:11]),
+	.m4col(status[10] && cfg[15:14] != 2'd0 ? 3'd4 : status[13:11]),   // composite: the colours come from the dots
 
 	.ps2_key(ps2_key),
 	.kbd_us(status[8]),
@@ -293,7 +293,7 @@ pc6001 #(.TURBO(TURBO)) pc6001
 	.hint_show(hint_show),
 	.hint_two(hint_two),
 	.hint_text(hint_text),
-	.hint_wait(hint_wait),
+	.hint_force(hint_force),
 	.model_set(model_set),
 	.model_req(model_req),
 	.cart_too_big(cart_too_big),
@@ -358,8 +358,8 @@ wire        tape_status_req, tape_status_ack;
 tape_status tape_status
 (
 	.clk(clk_sys),
-	.loaded(tape_loaded),
-	.playing(tape_motor && !hint_wait),
+	.loaded(tape_loaded | hint_force),
+	.playing(tape_motor && !hint_force),
 	.fast(tape_turbo_on),
 	.position({15'd0, tape_position}),
 	.length({15'd0, tape_length}),
@@ -383,13 +383,15 @@ pc6001_composite pc6001_composite
 	.mono(mono),
 	.bw_tv(status[13:11]),
 	.cidx(cidx),
+	.rgb_in(cfg[15:14] != 2'd0),
+	.r_in(rgb_r), .g_in(rgb_g), .b_in(rgb_b),
 	.hs_in(rgb_hs), .vs_in(rgb_vs), .hb_in(rgb_hb), .vb_in(rgb_vb),
 	.ce_pix(c_pix),
 	.r(c_r), .g(c_g), .b(c_b),
 	.hs(c_hs), .vs(c_vs), .hb(c_hb), .vb(c_vb)
 );
 
-wire       composite = status[10] & cfg[15:14] == 2'd0;   // the PC-6001's colours only, for now
+wire       composite = status[10];
 wire       ce_pix = composite ? c_pix : rgb_pix;
 wire       HBlank = composite ? c_hb : rgb_hb;
 wire       VBlank = composite ? c_vb : rgb_vb;

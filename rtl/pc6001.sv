@@ -80,7 +80,8 @@ module pc6001 #(
 	output            hint_show,       // what to type, while the deck is stopped (rtl/tape_auto.sv)
 	output            hint_two,
 	output    [383:0] hint_text,
-	output            hint_wait,       // the hint is "MOUNT THE NEXT TAPE", shown while the motor runs
+	output            hint_force,      // "MOUNT THE NEXT TAPE" or the wrong-model hint: over the tape bar, and without
+	                                   // a tape
 	output            model_set,       // one clk: the game list switches OSD Model to model_req (rtl/tape_auto.sv)
 	output      [1:0] model_req,
 	output            cart_too_big,    // the image was larger than 16 KB (cut off)
@@ -721,6 +722,19 @@ always @(posedge clk_sys) begin
 	end
 end
 
+// The wrong-model hint (rtl/tape_auto.sv): a write to a port the running model lacks. On the PC-6001 the mkII's
+// map (F0-F3), C1-C3 and the voice (E0-E3; C0 is the PC-6001's printer). On the mkII and PC-6601 the mkIISR's
+// palette (40-43), map (60-6F), and C8h turning the SR screens on (b0 = 0): the mkII's N60m-BASIC writes FFh
+// there itself (Legends of Star Arthur 3's BLOAD, PC 0DE1h).
+wire need_mk2 = io_wr && !mk2 && (A[7:2] == 6'b1111_00 || A[7:2] == 6'b1110_00 || A[7:2] == 6'b1100_00 && A[1:0] != 0);
+wire need_sr  = io_wr && mk2 && !sr && (A[7:0] == 8'hC8 && !cpu_dout[0] || A[7:2] == 6'b0100_00 || A[7:4] == 4'h6);
+// synthesis translate_off
+reg [15:0] cpu_pc_dbg;   // the last opcode fetch
+always @(posedge clk_sys) if (!m1_n && !mreq_n) cpu_pc_dbg <= A;
+always @(posedge clk_sys) if (need_mk2 || need_sr)
+	$display("[pc6001] a later model's port: OUT %02Xh, %02Xh at PC %04Xh", A[7:0], cpu_dout, cpu_pc_dbg);
+// synthesis translate_on
+
 // What to type for the tape: shown while the deck is stopped, typed after a reset with Tape auto-start on
 // (tape standard rules 25-28)
 wire       inj_strobe, inj_ready;
@@ -760,7 +774,9 @@ tape_auto tape_auto
 	.hint_show(hint_show),
 	.hint_two(hint_two),
 	.hint_text(hint_text),
-	.hint_wait(hint_wait)
+	.hint_force(hint_force),
+	.need_mk2(need_mk2),
+	.need_sr(need_sr)
 );
 
 // PSG: port A reads the joystick picked by port B bit 6 (0: joystick 2), active low:
@@ -1115,6 +1131,7 @@ always @(*) begin
 	else if (~mreq_n) cpu_din = mem_dout;
 	else cpu_din = io_dout;
 end
+
 
 //----------------------------------------------------------------------------
 // Video
