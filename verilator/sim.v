@@ -16,7 +16,7 @@ module top #(
    input         tape_rewind,
    input         tape_autostart,
    input         composite,        // the picture through rtl/pc6001_composite.sv
-   input   [2:0] comp_bw,          // bw_tv (rtl/pc6001_composite.sv)
+   input   [2:0] comp_bw,          // OSD B/W colours: bw_tv (rtl/pc6001_composite.sv), m4col (rtl/pc6001_vdg.sv)
 
    output [7:0]  VGA_R /*verilator public_flat*/,
    output [7:0]  VGA_G /*verilator public_flat*/,
@@ -94,21 +94,34 @@ wire        rgb_pix, HSync, VSync, HBlank, VBlank, mono;
 wire  [4:0] cidx;
 wire        tape_turbo_on;
 wire [427:0] tape_status_word;
-wire        hint_show, hint_two;
+wire        hint_show, hint_two, hint_wait;
 wire [383:0] hint_text;
 wire        tape_status_req, tape_status_ack;
+
+// OSD Model, as PC6001.sv's cfg: taken at reset; the game list can switch it (rtl/tape_auto.sv)
+reg  [1:0] model_r;
+wire       model_set;
+wire [1:0] model_req;
+always @(posedge clk_sys) begin
+   if (reset) model_r <= model;
+   else if (model_set) begin
+      model_r <= model_req;
+      $display("[sim] the game list switches Model to %0d", model_req);
+   end
+end
 
 pc6001 #(.TURBO(TURBO)) pc6001
 (
    .clk_sys(clk_sys),
    .reset(reset),
-   .model(model),
+   .model(model_r),
    .ioctl_wait(ioctl_wait),
    .ram16k(ram16k),
    .tape_turbo(tape_turbo),
    .tape_rewind(tape_rewind),
    .cart_eject(1'b0),
    .tape_autostart(tape_autostart),
+   .m4col(comp_bw),
    .ps2_key(ps2_key),
    .kbd_us(kbd_us),
    .joy0(joy0), .joy1(joy1),
@@ -132,7 +145,8 @@ pc6001 #(.TURBO(TURBO)) pc6001
    .tape_turbo_on(tape_turbo_on),
    .tape_position(tape_position),
    .tape_length(tape_length),
-   .hint_show(hint_show), .hint_two(hint_two), .hint_text(hint_text),
+   .hint_show(hint_show), .hint_two(hint_two), .hint_text(hint_text), .hint_wait(hint_wait),
+   .model_set(model_set), .model_req(model_req),
    .cart_too_big(),
 
    .img_mounted(img_mounted), .img_readonly(img_readonly), .img_size(img_size),
@@ -154,7 +168,7 @@ pc6001 #(.TURBO(TURBO)) pc6001
 tape_status tape_status
 (
    .clk(clk_sys),
-   .loaded(tape_loaded), .playing(tape_motor), .fast(tape_turbo_on),
+   .loaded(tape_loaded), .playing(tape_motor && !hint_wait), .fast(tape_turbo_on),
    .position({15'd0, tape_position}), .length({15'd0, tape_length}), .hz(18'd100),
    .hint_show(hint_show), .hint_two(hint_two), .hint_text(hint_text),
    .status(tape_status_word), .req(tape_status_req), .ack(tape_status_ack)

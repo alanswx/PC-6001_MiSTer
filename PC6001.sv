@@ -59,7 +59,7 @@ assign VIDEO_ARY = (!ar) ? 12'd3 : 12'd0;
 // act at once.
 // Status bits: 0 reset, 1 memory, 2 unused (old Fast tape), 3 rewind tape, 4 tape speed, 5 tape overlay,
 // 6 swap Alt/Win keys, 7 remove cartridge, 8 keyboard, 9 touch panel, 10 video, 11-13 B/W colours (the black/white
-// graphics mode on a TV), 14-15 model, 16 tape auto-start, 121-122 aspect ratio.
+// graphics mode on a TV; in RGB, mode 4 coloured as PC6001VX does), 14-15 model, 16 tape auto-start, 121-122 aspect ratio.
 `include "build_id.v"
 // Tape turbo factor: the Z80 and the tape run TURBO times as fast while the motor relay is on (rtl/pc6001.sv)
 localparam int TURBO = 7;
@@ -140,6 +140,8 @@ hps_io #(.CONF_STR(CONF_STR), .VDNUM(1)) hps_io
 
 	.buttons(buttons),
 	.status(status),
+	.status_in(status_in),
+	.status_set(status_set),
 	.status_menumask({15'd0, osd_pending}),
 	.info_req(tape_info_req),
 	.info(tape_info),
@@ -186,9 +188,22 @@ wire reset = RESET | status[0] | buttons[1] | status[7] |
              (ioctl_download & (ioctl_index[5:0] == 6'd0 | ioctl_index[5:0] == 6'd2));
 
 // The settings the machine runs with, taken from the OSD at every reset (Apply and reset, the board's reset,
-// Load ROM, a core reload)
+// Load ROM, a core reload). The game list (rtl/tape_auto.sv) can switch the model for a tape: at once here, and in
+// the OSD through status_set; tape auto-start's reset follows.
 reg [127:0] cfg;
-always @(posedge clk_sys) if (reset) cfg <= status;
+reg [127:0] status_in;
+reg         status_set;
+wire        model_set;
+wire  [1:0] model_req;
+always @(posedge clk_sys) begin
+	status_set <= 1'b0;
+	if (reset) cfg <= status;
+	else if (model_set) begin
+		cfg[15:14] <= model_req;
+		status_in <= {status[127:16], model_req, status[13:0]};
+		status_set <= 1'b1;
+	end
+end
 wire osd_pending = {status[15:14], status[1], status[122:121]} != {cfg[15:14], cfg[1], cfg[122:121]};
 
 // Swap Alt/Win keys (acts at once): the Win keys become GRAPH and the Alt keys nothing
@@ -218,7 +233,7 @@ wire rgb_pix;
 wire [7:0] rgb_r, rgb_g, rgb_b;
 wire        tape_motor, tape_loaded, tape_too_big, tape_turbo_on, cart_too_big;
 wire [16:0] tape_position, tape_length;
-wire         hint_show, hint_two;
+wire         hint_show, hint_two, hint_wait;
 wire [383:0] hint_text;
 
 // Touch panel on joystick port 2 (OSD), worked with the mouse
@@ -243,6 +258,7 @@ pc6001 #(.TURBO(TURBO)) pc6001
 	.tape_rewind(status[3]),
 	.cart_eject(status[7]),
 	.tape_autostart(~status[16]),
+	.m4col(status[13:11]),
 
 	.ps2_key(ps2_key),
 	.kbd_us(status[8]),
@@ -277,6 +293,9 @@ pc6001 #(.TURBO(TURBO)) pc6001
 	.hint_show(hint_show),
 	.hint_two(hint_two),
 	.hint_text(hint_text),
+	.hint_wait(hint_wait),
+	.model_set(model_set),
+	.model_req(model_req),
 	.cart_too_big(cart_too_big),
 	.img_mounted(img_mounted),
 	.img_readonly(img_readonly),
@@ -340,7 +359,7 @@ tape_status tape_status
 (
 	.clk(clk_sys),
 	.loaded(tape_loaded),
-	.playing(tape_motor),
+	.playing(tape_motor && !hint_wait),
 	.fast(tape_turbo_on),
 	.position({15'd0, tape_position}),
 	.length({15'd0, tape_length}),

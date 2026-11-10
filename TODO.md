@@ -4,7 +4,8 @@
 - Disk unit (rtl/pc6031.sv, runs DISK.ROM): a second drive; 2D / larger images; FORMAT of tracks the image lacks
   (an unformatted .d88); booting "SYS" disks such as Nyahacks 60 (how does a PC-6001 start one?); the PC-6031SR's
   extra commands. The firmware is the PC-80S31's: compare with a PC-6031 dump if one turns up.
-- .p6t: play the footer's gaps (silence, carrier) and 600 baud blocks; only the byte image plays now.
+- .p6t: play the footer's gaps (silence, carrier) and 600 baud blocks; only the byte image plays now (with a
+  half-second gap before each machine-code sync, six 9Ch, after the start).
 - Cartridges: Senshi no Cartridge (PC6001VX EXCSOL1 on a PC-6001: 128 KB ROM in 8 KB banks at 4000h, picked by
   OUT 7Fh, and 32 KB RAM at 6000h-BFFF): nothing dumped here needs it, so wait for software to test with. (The
   PC-6006 ROM/RAM cartridge is the 32 KB setting; EXTROM.60 is only CSCP's name for the cartridge file.)
@@ -32,11 +33,8 @@
   palette/mode, voice) puts "NEEDS PC-6001mkII: OSD MACHINE > MODEL" in the tape hint box; the same for
   66/SR-only ports on a mkII. Check for false alarms: the regression tests and a sweep of the tape library.
   Add regression tests (a mkII tape on the PC-6001 shows the hint; PC-6001 software does not).
-- Load by name: filename tags set everything, so picking the file is all a user does. {mXpY} is read already;
-  add the model ({mk2}, {66}, {sr}: tape auto-start's reset also switches the model), and commands typed
-  before CLOAD (Space Mouse needs "clear 10,&hd5ff"). Multi-tape loads (Slender Island: CLOAD part 1, swap,
-  RUN) as one joined image. A script that tags a collection from neokobe names/readmes and MAME's
-  pc6001/pc6001mk2 lists. The wrong-model hint stays for untagged or mis-tagged files.
+- Game list (done: rtl/pc6001_gamelist.svh from tools/gamelist.py, 571 tapes): more collections and testers'
+  notes; a disk list (.d88) the same way; the hint for Tape auto-start Off (shown only once typing ends now).
 - Composite for the mkII, PC-6601 and SR (testers ask): an RGB -> YIQ encoder feeding the same NTSC decoder; the
   PC-6001 keeps its colour-code encoder. Tune against PC6001VX's NTSC filter; tests for each model.
 

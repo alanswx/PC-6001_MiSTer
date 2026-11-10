@@ -23,6 +23,12 @@
 //  with the keys to type. Those win over the guesses (the G above is still added), except for a monitor tape
 //  whose footer has no keys to type: its mode is then 5, whatever the footer says.
 //
+//  The game list (rtl/pc6001_gamelist.svh, tools/gamelist.py) wins over both: a CRC-32 of the file, taken as it
+//  downloads, finds what the tape's names, readmes and testers say: mode, pages, keys to type (CLEAR before
+//  CLOAD, MON R-0 G9000), a hint shown for 10 s once the typing ends, bytes a bad dump lacks, and the model. With
+//  Tape auto-start, a model above the running one (whose ROMs Main loaded) is switched to before the typing: OSD
+//  Model changes with it. A PC-6001 tape on a later model stays there.
+//
 //  The key script is PC6001VX's (p6el.cpp EL6::SetAutoStart, GetAutoKey): a prefix that answers the BASIC menu
 //  and "How Many Pages?" for the model, then the tape's command: its footer's, or CLOAD then RUN for a BASIC
 //  tape. Codes: 17h n wait n frames, 0Ah Return then wait for the tape relay to close and open again, 0Dh
@@ -34,6 +40,9 @@
 //
 //  Shown while the deck is stopped (the tape overlay): at the start of the tape the setup ("MODE 5  PAGES 3")
 //  and "TYPE " the command up to its first 0Ah; after each stop of the motor the next part, until Return.
+//
+//  At the tape's end, with a program waiting for more (Slender Island's loader, after CLOAD of part 1): "MOUNT
+//  THE NEXT TAPE", over the tape bar.
 //
 //  Typed (enable): mounting a tape with a command and a known setup resets the machine and types the script,
 //  unless a program is waiting for the tape (the motor on, or the cassette open for loading): then the tape just
@@ -49,6 +58,9 @@ module tape_auto
 	input             ram16k,
 	input             drives,         // a disk unit: modes 3-5 (and 6) ask "How Many Files?"
 	input             enable,         // OSD Tape auto-start
+	input       [3:0] models,         // the models whose ROMs were loaded (bit n: model n)
+	output reg        model_set = 0,  // one clk: switch OSD Model to model_req (the game list's, before typing)
+	output reg  [1:0] model_req,
 
 	// the image as it downloads (addresses from 0, one after another)
 	input             dl,
@@ -63,6 +75,8 @@ module tape_auto
 	input       [7:0] rd_data,        // the byte at rd_addr, two clocks later
 	output reg        img_len_set,    // a P6T: only its byte image plays
 	output reg [15:0] img_len,
+	output reg        app_we,         // a byte the game list adds after the image (a dump missing its last)
+	output reg  [7:0] app_data,
 
 	input      [16:0] pos,            // tape position
 	input             motor,
@@ -79,7 +93,8 @@ module tape_auto
 	// the hint (rtl/tape_overlay.sv): two lines of 24 characters, the first in [383:376]; 01h is a Return sign
 	output            hint_show,
 	output            hint_two,
-	output    [383:0] hint_text
+	output    [383:0] hint_text,
+	output            hint_wait       // "MOUNT THE NEXT TAPE": a program has waited a second at the tape's end
 );
 
 //----------------------------------------------------------------------------
@@ -98,6 +113,7 @@ reg  [1:0] zrun;
 reg  [2:0] ss;                    // SCREEN statement state
 reg  [2:0] scr_pages;             // the highest page SCREEN names (1 if none)
 reg [31:0] tail;                  // the last four bytes
+reg [31:0] crc;                   // CRC-32 of the image (complemented: ~crc), for the game list
 
 // monitor tape records
 reg        hex;                   // six 9Ch at the start, then a record
@@ -118,6 +134,7 @@ wire [15:0] h_at = h_addr + 16'(h_i - 9'd4);
 always @(posedge clk) begin
 	if (dl && wr) begin
 		tail <= {data, tail[31:8]};
+		crc <= crc8(addr == 0 ? 32'hFFFFFFFF : crc, data);
 		if (addr == 0) begin
 			basic <= data == 8'hD3;
 			hex <= data == 8'h9C;
@@ -180,6 +197,13 @@ always @(posedge clk) begin
 	end
 end
 
+function automatic [31:0] crc8(input [31:0] c, input [7:0] d);
+	reg [31:0] x;
+	x = c ^ {24'd0, d};
+	for (int k = 0; k < 8; k = k + 1) x = x[0] ? (x >> 1) ^ 32'hEDB88320 : x >> 1;
+	crc8 = x;
+endfunction
+
 // SCREEN a[,b[,c]] with digits 1-4: the pages b and c
 task scan(input [7:0] c);
 	if (c == 8'h9F) ss <= 3'd1;
@@ -205,7 +229,8 @@ endtask
 
 reg        old_dl;
 reg  [2:0] fs;                    // footer state
-localparam F_IDLE = 3'd0, F_ADDR = 3'd1, F_WAIT = 3'd2, F_TAKE = 3'd3, F_DONE = 3'd4;
+localparam F_IDLE = 3'd0, F_ADDR = 3'd1, F_WAIT = 3'd2, F_TAKE = 3'd3, F_DONE = 3'd4,
+           F_LIST = 3'd5, F_LCMP = 3'd6, F_REC = 3'd7;   // the game list: an entry, its CRC, its record
 reg  [6:0] fi;                    // footer byte index
 reg        p6t, f_start;
 reg  [7:0] f_basic, f_page;
@@ -214,6 +239,24 @@ reg  [7:0] ask[0:63];
 reg  [6:0] ask_len;
 reg        info_new, info_done;   // one clk: a new tape's information is complete (info_done a clk later)
 
+// The game list (rtl/pc6001_gamelist.svh, made by tools/gamelist.py): entries {CRC-32 of the file, model
+// (1 PC-6001 .. 4 mkIISR), mode, pages, record}, 0 for what it does not say, and records in a byte pool: the
+// keys to type (as a footer's), 00h, a hint (two lines split by 0Ah), 00h, a count and the bytes to add.
+`include "pc6001_gamelist.svh"
+reg  [9:0] gi;
+reg [52:0] g_q;
+reg [11:0] pa;
+reg  [7:0] p_q;
+always @(posedge clk) g_q <= gl_entry(gi);
+always @(posedge clk) p_q <= gl_byte(pa);
+reg        l_hit, l_cmd, l_hint, l_two;
+reg  [2:0] l_model, l_mode, l_pages;
+reg [383:0] l_text;
+reg  [1:0] rs;                    // the record's part: the keys, the hint, the count, the bytes
+reg  [5:0] ri;
+reg  [7:0] acnt;
+reg        rph;
+
 // the footer's last byte for us: not "P6", no command, the command's last byte (up to 64)
 wire f_last = fi == 7'd0 && rd_data != "P" || fi == 7'd1 && rd_data != "6" ||
               fi == 7'd8 && {rd_data, f_ask[7:0]} == 0 || fi >= 7'd9 && ({9'd0, fi - 7'd8} == f_ask || fi == 7'd72);
@@ -221,17 +264,19 @@ wire f_last = fi == 7'd0 && rd_data != "P" || fi == 7'd1 && rd_data != "6" ||
 always @(posedge clk) begin
 	old_dl <= dl;
 	img_len_set <= 1'b0;
+	app_we <= 1'b0;
 	info_new <= 1'b0;
 	info_done <= info_new;
 	if (dl) begin
 		fs <= F_IDLE; rd_busy <= 0; p6t <= 0; f_start <= 0; ask_len <= 0;
+		l_hit <= 0; l_cmd <= 0; l_hint <= 0; l_two <= 0; l_model <= 0; l_mode <= 0; l_pages <= 0;
 	end
 	else if (old_dl) begin
 		// the download just ended: a footer at the place the last four bytes give?
 		if (len >= 17'd13 && tail[31:16] == 0 && tail[15:0] != 0 && {1'b0, tail[15:0]} + 17'd9 <= len) begin
 			rd_addr <= tail[15:0]; rd_busy <= 1'b1; fi <= 0; fs <= F_WAIT;
 		end
-		else begin fs <= F_DONE; info_new <= 1'b1; end
+		else begin fs <= F_LIST; gi <= 0; end
 	end
 	else case (fs)
 	F_ADDR: begin rd_addr <= rd_addr + 1'd1; fs <= F_WAIT; end
@@ -247,8 +292,38 @@ always @(posedge clk) begin
 		7'd8: f_ask[15:8] <= rd_data;
 		default: if (fi >= 7'd9) begin ask[6'(fi - 7'd9)] <= rd_data; ask_len <= fi - 7'd8; end
 		endcase
-		if (f_last) begin fs <= F_DONE; rd_busy <= 1'b0; info_new <= 1'b1; end
+		if (f_last) begin fs <= F_LIST; gi <= 0; rd_busy <= 1'b0; end
 		else fs <= F_ADDR;
+	end
+	// the list: an entry a clk after gi, two clks an entry
+	F_LIST: fs <= F_LCMP;
+	F_LCMP: begin
+		if (g_q[52:21] == ~crc) begin
+			l_hit <= 1'b1; l_model <= g_q[20:18]; l_mode <= g_q[17:15]; l_pages <= g_q[14:12];
+			l_text <= {48{8'h20}};
+			if (g_q[11:0] != 0) begin pa <= g_q[11:0]; rs <= 0; ri <= 0; rph <= 0; fs <= F_REC; end
+			else begin fs <= F_DONE; info_new <= 1'b1; end
+		end
+		else if (gi == 10'(GL_N - 1)) begin fs <= F_DONE; info_new <= 1'b1; end
+		else begin gi <= gi + 1'd1; fs <= F_LIST; end
+	end
+	F_REC: begin
+		rph <= ~rph;
+		if (rph) begin
+			pa <= pa + 1'd1;
+			case (rs)
+			2'd0: if (p_q == 0) begin rs <= 2'd1; ri <= 0; end
+			      else begin ask[ri] <= p_q; ask_len <= {1'b0, ri} + 1'd1; l_cmd <= 1'b1; ri <= ri + 1'd1; end
+			2'd1: if (p_q == 0) rs <= 2'd2;
+			      else if (p_q == 8'h0A) begin ri <= 6'd24; l_two <= 1'b1; end
+			      else begin l_text[383 - {ri, 3'b000} -: 8] <= p_q; l_hint <= 1'b1; ri <= ri + 1'd1; end
+			2'd2: begin acnt <= p_q; rs <= 2'd3; if (p_q == 0) begin fs <= F_DONE; info_new <= 1'b1; end end
+			default: begin
+				app_we <= 1'b1; app_data <= p_q; acnt <= acnt - 1'd1;
+				if (acnt == 8'd1) begin fs <= F_DONE; info_new <= 1'b1; end
+			end
+			endcase
+		end
 	end
 	default: ;
 	endcase
@@ -275,13 +350,14 @@ wire       mon   = hex && model != 2'd0;
 // (Dr. Slump Bubble Daisakusen's footer: auto-start off, mode 2, 2 pages)
 wire       use_f = p6t && f_basic != 0 && f_basic <= 8'd6 && f_page != 0 && f_page <= 8'd4 &&
                    !(mon && !(f_start && ask_len != 0));
-wire [3:0] mode  = use_f ? f_basic[3:0] : mon ? 4'd5 : g_mode;
-wire [2:0] pages = use_f ? f_page[2:0] : mon ? (h_pages != 0 ? h_pages : 3'd4) : g_pages;
-wire       need32 = model == 2'd0 && have_start && text_start < 16'hC000 && !use_f;
+// the game list wins over both
+wire [3:0] mode  = l_mode != 0 ? {1'b0, l_mode} : use_f ? f_basic[3:0] : mon ? 4'd5 : g_mode;
+wire [2:0] pages = l_pages != 0 ? l_pages : use_f ? f_page[2:0] : mon ? (h_pages != 0 ? h_pages : 3'd4) : g_pages;
+wire       need32 = model == 2'd0 && (l_mode != 0 ? l_mode == 3'd2 : have_start && text_start < 16'hC000 && !use_f);
 
 // the command: the footer's, MON 0Dh R0 0Ah for a monitor tape, or CLOAD 0Ah RUN 0Dh for a BASIC tape; then
 // with a disk unit and Hudson's loader: a wait, G and the word at F89Fh, 0Dh
-wire       own_cmd = p6t && f_start && ask_len != 0;
+wire       own_cmd = (p6t && f_start || l_cmd) && ask_len != 0;
 wire       has_cmd = own_cmd || basic || mon;
 wire       g_on    = mon && ent_ok == 2'b11 && drives;
 wire [6:0] base_len = own_cmd ? ask_len : mon ? 7'd7 : 7'd10;
@@ -341,7 +417,13 @@ wire known = model == 2'd0 ? pages != 0 : (mode != 0 && (mode != 4'd6 || model =
 // a monitor tape that does not start itself (no F89Fh word; its G address is unknown) is only shown
 wire auto_ok = has_cmd && known && (own_cmd || !mon || ent_ok == 2'b11);
 
+// the list's model, when it is above the running one and its ROMs are there (a PC-6001 tape runs on the others)
+wire [1:0] l_m = 2'(l_model - 3'd1);
+wire       switch = enable && l_hit && l_model != 0 && l_m > model && models[l_m];
+
 // synthesis translate_off
+always @(posedge clk) if (info_done) $display("[tape_auto] list crc %h hit %0d model %0d mode %0d pages %0d cmd %0d hint %0d switch %0d",
+                                               ~crc, l_hit, l_model, l_mode, l_pages, l_cmd, l_hint, switch);
 always @(posedge clk) if (info_done) $display("[tape_auto] hex %0d ent %h/%0d hpg %0d basic %0d start %h scr %0d p6t %0d fb %0d fp %0d st %0d ask %0d mode %0d pages %0d cmd %0d ok %0d", hex, ent, ent_ok, h_pages, basic, text_start, scr_pages, p6t, f_basic, f_page, f_start, ask_len, mode, pages, has_cmd, auto_ok);
 // synthesis translate_on
 
@@ -369,8 +451,12 @@ always @(posedge clk) begin
 	auto_reset <= rst_cnt != 0;
 	if (rst_cnt != 0) rst_cnt <= rst_cnt - 1'd1;
 
-	// a new tape: reset and type, unless a program waits for it
-	if (info_done && enable && auto_ok && !motor && !cmt_open) rst_cnt <= 5'd31;
+	// a new tape: reset and type, unless a program waits for it; first the list's model
+	model_set <= 1'b0;
+	if (info_done && enable && (auto_ok || switch) && !motor && !cmt_open) begin
+		rst_cnt <= 5'd31;
+		if (switch) begin model_set <= 1'b1; model_req <= l_m; end
+	end
 	if (dl) typing <= 1'b0;
 
 	if (reset) typing <= 1'b0;
@@ -504,14 +590,38 @@ always @(posedge clk) begin
 end
 
 wire ready = bs == 0 && built == key_now;
-assign hint_show = ready && fs == F_DONE && has_cmd && seg_ok && !motor && (seg == 0 ? pos == 0 : !hide);
-assign hint_two  = seg == 0 && l1_on;
+
+// The list's hint: for 10 s once the typing ends, or until a key
+reg  [9:0] l_cnt;
+reg        old_typing, l_key;
+always @(posedge clk) begin
+	old_typing <= typing;
+	l_key <= ps2_key[10];
+	if (dl || (ps2_key[10] != l_key && ps2_key[9])) l_cnt <= 0;
+	else if (old_typing && !typing && l_hint) l_cnt <= 10'd600;
+	else if (frame && l_cnt != 0) l_cnt <= l_cnt - 1'd1;
+end
+wire l_show = l_cnt != 0 && !hint_wait;
+
+// A program waiting at the tape's end (the motor on, the cassette open, nothing left) for a second: a game's next
+// tape. Shown over the tape bar, whatever the tape's command.
+reg  [5:0] wcnt;
+always @(posedge clk) begin
+	if (dl || !motor || !cmt_open || pos < len || len == 0) wcnt <= 0;
+	else if (frame && wcnt != 6'd63) wcnt <= wcnt + 1'd1;
+end
+localparam [191:0] NEXT = "MOUNT THE NEXT TAPE     ";
+
+assign hint_wait = wcnt == 6'd63;
+assign hint_show = hint_wait || l_show || (ready && fs == F_DONE && has_cmd && seg_ok && !motor && (seg == 0 ? pos == 0 : !hide));
+assign hint_two  = l_show ? l_two : !hint_wait && seg == 0 && l1_on;
 
 genvar g;
 generate
 	for (g = 0; g < 24; g = g + 1) begin : txt
-		assign hint_text[383 - 8 * g -: 8] = hint_two ? l1[g] : l2[g];
-		assign hint_text[191 - 8 * g -: 8] = l2[g];
+		assign hint_text[383 - 8 * g -: 8] = hint_wait ? NEXT[191 - 8 * g -: 8] : l_show ? l_text[383 - 8 * g -: 8] :
+		                                     hint_two ? l1[g] : l2[g];
+		assign hint_text[191 - 8 * g -: 8] = l_show ? l_text[191 - 8 * g -: 8] : l2[g];
 	end
 endgenerate
 

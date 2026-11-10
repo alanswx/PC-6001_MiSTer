@@ -5,6 +5,7 @@
 #
 # ROMs: ../rom/BASICROM.60, ../rom/CGROM60.60 and, for the disk test, ../rom/DISK.ROM (not in the repository).
 # TAPES=1 adds the tape, cartridge and disk tests, which use ../refs/software (not in the repository either).
+# ONLY=a,b runs just those tests.
 set -u
 cd "$(dirname "$0")"
 SIM=${SIM:-./obj_dir_headless/Vtop}   # SIM=path: another build
@@ -15,6 +16,7 @@ mkdir -p "$OUT" tests/expected
 fail=0
 run() {   # name frame args...
 	local name=$1 frame=$2; shift 2
+	if [ -n "${ONLY:-}" ] && [[ ",$ONLY," != *",$name,"* ]]; then return; fi
 	local dir=$OUT/$name
 	rm -rf "$dir"; mkdir -p "$dir"
 	"$SIM" --quiet --rom-dir ../rom --out "$dir" --frame-log "$dir/frames.csv" --stop-at-frame "$frame" \
@@ -30,7 +32,7 @@ run() {   # name frame args...
 run boot_pages 300
 run basic_print 520 --type '155:\n' --type '200:print 12*3\n' --type '330:PRINT "Hi"\n'
 run screen3_lines 1400 --type '155:2\n{WAIT30}10 SCREEN 3,2,2:CLS\n{WAIT20}20 LINE (0,0)-(127,191),2:LINE (127,0)-(0,191),3\n{WAIT20}30 LINE (10,90)-(120,100),4,BF\n{WAIT20}40 GOTO 40\n{WAIT20}RUN\n'
-run screen4_lines 1400 --type '155:2\n{WAIT30}10 SCREEN 4,2,2:CLS\n{WAIT20}20 LINE (0,0)-(127,191)\n{WAIT20}30 LINE (10,10)-(60,40),,BF\n{WAIT20}40 GOTO 40\n{WAIT20}RUN\n'
+run screen4_lines 1400 --bw 4 --type '155:2\n{WAIT30}10 SCREEN 4,2,2:CLS\n{WAIT20}20 LINE (0,0)-(127,191)\n{WAIT20}30 LINE (10,10)-(60,40),,BF\n{WAIT20}40 GOTO 40\n{WAIT20}RUN\n'
 # Keyboard = US: every US symbol the P6 has, as printed on the keys
 run kbd_us 900 --kbd-us --type '155:1\n{WAIT40}PRINT "!@#$%^&*()-_=+[]\\;:'"'"',.<>/?"\n'
 # OSD Video = Composite (rtl/pc6001_composite.sv): the boot screen through the NTSC encoder and decoder
@@ -80,6 +82,18 @@ if [ "${TAPES:-0}" = 1 ]; then
 	# mkII mode 5 160x200 in 16 colours (SCREEN 3, C1 = 09h): bars of colours 1-16, 10 dots each
 	m=(--type '300:5{WAIT100}\n{WAIT60}\n10 SCREEN 3,2,2:CLS\n{WAIT20}20 FOR I=0 TO 15:LINE(I*10,0)-(I*10+9,99),I+1,BF:NEXT\n{WAIT20}30 GOTO 30\n{WAIT20}RUN\n')
 	run mk2_screen3 3300 --mk2 --no-disk-unit "${m[@]}"
+	# OSD B/W colours on the RGB picture (rtl/pc6001_vdg.sv, PC6001VX's colour table): mode 4 stripes on the mkII
+	# (N60 BASIC, mode 2), Red/Blue: colour set 2, even-dot stripes blue, odd-dot red, the box white
+	m=(--type '300:2{WAIT100}2\n{WAIT60}10 SCREEN 4,2,2:COLOR 1,0,1:CLS\n{WAIT20}20 FOR X=0 TO 62 STEP 2:LINE(X,0)-(X,80):NEXT\n{WAIT20}30 FOR X=129 TO 191 STEP 2:LINE(X,0)-(X,80):NEXT\n{WAIT20}40 LINE(0,100)-(255,150),,BF:FOR I=1 TO 900:NEXT:COLOR 1,0,2\n{WAIT20}50 GOTO 50\n{WAIT20}RUN\n')
+	run mk2_screen4_colour 3000 --mk2 --no-disk-unit "${m[@]}"
+	# the game list (rtl/pc6001_gamelist.svh) with Tape auto-start: Space Mouse's dump lacks its last byte and needs
+	# CLEAR 10,&HD5FF typed first (the list adds both: the maze); Portopia, mounted on a PC-6001, switches the
+	# model to the mkII (mode 4, 1 page) and shows the list's hint over the colour test
+	K="../refs/software/pc6001/neokobe_full_unzipped/NEC PC-6001"
+	run gamelist_smouse 3000 --tape "$K/Space Mouse (Akihisa Kanda)/Space Mouse [CT cas]/Space Mouse {m2p2 clear 10,&hd5ff}.cas" \
+		--tape-turbo --autostart
+	run gamelist_portopia 1500 --all-roms --tape-turbo --autostart \
+		--tape "$K/Portopia Renzoku Satsujin Jiken (Yuji Horii - Enix)/Portopia Renzoku Satsujin Jiken [CT]/Portopia Renzoku Satsujin Jiken {m2p1}.cas"
 	# the PC-6601's built-in drive (rtl/fdc66.sv): N66-BASIC lists and loads TEST from the PC-6031 test disk
 	run p66_disk 1700 --p66 --disk tests/disk/test.d88 \
 		--type '320:5{WAIT100}\n{WAIT100}\n{WAIT100}\n{WAIT60}FILES\n{WAIT150}LOAD"TEST"\n{WAIT250}LIST 10-30\n'

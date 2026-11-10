@@ -20,6 +20,7 @@ module rom_store #(parameter [28:0] BASE = 29'h06020000)   // past the disk imag
 	output            ioctl_wait,
 
 	output            busy,
+	output reg  [2:0] sets = 0,       // the sets downloaded: bit 0 the mkII's .. bit 2 the mkIISR's
 	output reg [17:0] rom_a,
 	output reg  [7:0] rom_d,
 	output reg        rom_we = 0,
@@ -65,6 +66,7 @@ always @(posedge clk) begin
 	// a copy after each reset, and after a download of the current model's set
 	if ((reset_d && !reset) || (dl_d && !(ioctl_download && dl_ours))) copy_req <= model != 2'd0;
 
+	if (ioctl_download && ioctl_wr && dl_ours) sets[dl_set] <= 1'b1;
 	if (ioctl_download && ioctl_wr && dl_ours && ioctl_addr[24:18] == 0) begin
 		ddr_addr <= BASE + {13'd0, dl_set, 14'd0} + {14'd0, ioctl_addr[17:3]};
 		ddr_din <= {8{ioctl_dout}};

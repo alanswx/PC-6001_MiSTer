@@ -64,6 +64,8 @@ struct Options {
     std::string disk_file;                // --disk FILE: a .d88 mounted as S0
     std::string disk_out;                 // --disk-out FILE: the image as the drive left it, written at the end
     int         composite = -1;               // --composite N: OSD Video = Composite, B/W graphics on TV = N
+    bool        all_roms = false;             // --all-roms: boot1-3.rom all loaded, as Main does
+    int         bw = 0;                       // --bw N: OSD B/W colours (0 Red/Blue, the OSD's default .. 4 None)
     bool        kbd_us = false;               // --kbd-us: OSD Keyboard = US (symbols); --type then types US keys
     bool        tape_turbo = false;           // --tape-turbo: OSD Tape speed 7x (the OSD default; here Normal)
     bool        tape_overlay = true;          // --no-tape-overlay: OSD Tape overlay Off
@@ -93,6 +95,8 @@ static void usage()
 "  --cart FILE            load a cartridge ROM (OSD Cartridge); BASIC boots it\n"
 "  --composite N          the picture as a TV decodes it (rtl/pc6001_composite.sv); N, the black/white\n"
 "                         graphics mode on that TV: 0 red/blue, 1 blue/red, 2 pink/green, 3 green/pink, 4 grey\n"
+"  --all-roms             load every model's ROMs (boot1-3.rom), as Main does; the game list can switch Model\n"
+"  --bw N                 OSD B/W colours without composite: mode 4 coloured as PC6001VX does (default 0; 4 none)\n"
 "  --kbd-us               OSD Keyboard = US: symbols as on a US keyboard (--type uses US keys)\n"
 "  --disk FILE            mount a .d88 (OSD Disk); the PC-6031 unit is there when DIR/DISK.ROM is (--no-disk-unit:\n"
 "                         leave it out); --disk-out FILE writes the image as the drive left it\n"
@@ -188,6 +192,8 @@ static bool parse_args(int argc, char **argv, Options &o)
         else if (a == "--tape-turbo" || a == "--tape-fast") o.tape_turbo = true;
         else if (a == "--kbd-us") o.kbd_us = true;
         else if (a == "--composite") o.composite = parse_num(next()) % 5;
+        else if (a == "--bw") o.bw = parse_num(next()) % 5;
+        else if (a == "--all-roms") o.all_roms = true;
         else if (a == "--no-tape-overlay") o.tape_overlay = false;
         else if (a == "--autostart") o.autostart = true;
         else if (a == "--reset-at") o.resets.insert(parse_num(next()));
@@ -391,25 +397,28 @@ bool Sim::load_rom()
         { "CGROM66.66", 0x0e000, 0x2000 }, { "KANJIROM.66", 0x10000, 0x8000 } };
     static const struct { const char *name; uint32_t at, size; } sr[] = {
         { "SYSTEMROM1.64", 0x00000, 0x10000 }, { "SYSTEMROM2.64", 0x10000, 0x10000 }, { "CGROM68.64", 0x20000, 0x4000 } };
-    if (opt.model == 0) return true;
-    std::vector<uint8_t> b1(opt.model == 3 ? 0x24000 : 0x18000, 0xFF);
-    bool any = false;
-    for (int i = 0; i < (opt.model == 3 ? 3 : 5); i++) {
-        const char *name = opt.model == 3 ? sr[i].name : opt.model == 2 ? p66[i].name : mk2[i].name;
-        uint32_t at = opt.model == 3 ? sr[i].at : mk2[i].at, size = opt.model == 3 ? sr[i].size : mk2[i].size;
-        std::vector<uint8_t> f;
-        if (!read_file(opt.rom_dir + "/" + name, f)) {
-            fprintf(stderr, "warning: %s/%s not found (boot%d.rom)\n", opt.rom_dir.c_str(), name, opt.model);
-            continue;
+    // --all-roms: every set there is, as Main does (the game list can switch the model)
+    for (int m = 1; m <= 3; m++) {
+        if (m != opt.model && !opt.all_roms) continue;
+        std::vector<uint8_t> b1(m == 3 ? 0x24000 : 0x18000, 0xFF);
+        bool any = false;
+        for (int i = 0; i < (m == 3 ? 3 : 5); i++) {
+            const char *name = m == 3 ? sr[i].name : m == 2 ? p66[i].name : mk2[i].name;
+            uint32_t at = m == 3 ? sr[i].at : mk2[i].at, size = m == 3 ? sr[i].size : mk2[i].size;
+            std::vector<uint8_t> f;
+            if (!read_file(opt.rom_dir + "/" + name, f)) {
+                fprintf(stderr, "warning: %s/%s not found (boot%d.rom)\n", opt.rom_dir.c_str(), name, m);
+                continue;
+            }
+            f.resize(size, 0xFF);
+            std::copy(f.begin(), f.end(), b1.begin() + at);
+            any = true;
         }
-        f.resize(size, 0xFF);
-        std::copy(f.begin(), f.end(), b1.begin() + at);
-        any = true;
-    }
-    if (any) {
-        ioctl_load(0, b1, opt.model << 6);
-        if (!opt.quiet) fprintf(stderr, "[sim] boot%d.rom: the %s's ROMs from '%s'\n", opt.model,
-                                opt.model == 3 ? "mkIISR" : opt.model == 2 ? "PC-6601" : "mkII", opt.rom_dir.c_str());
+        if (any) {
+            ioctl_load(0, b1, m << 6);
+            if (!opt.quiet) fprintf(stderr, "[sim] boot%d.rom: the %s's ROMs from '%s'\n", m,
+                                    m == 3 ? "mkIISR" : m == 2 ? "PC-6601" : "mkII", opt.rom_dir.c_str());
+        }
     }
     return true;
 }
@@ -649,7 +658,7 @@ int Sim::run()
     top->tape_turbo = opt.tape_turbo;
     top->kbd_us = opt.kbd_us;
     top->composite = opt.composite >= 0;
-    top->comp_bw = opt.composite > 0 ? opt.composite : 0;
+    top->comp_bw = opt.composite > 0 ? opt.composite : opt.bw;
     top->tape_overlay = opt.tape_overlay;
     top->tape_autostart = opt.autostart;
     top->tape_rewind = 0;

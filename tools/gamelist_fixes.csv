@@ -1,0 +1,8 @@
+match,model,mode,pages,before,command,append,hint,note
+9a140a48,,,,,,,APPEND: MENU 3  Y  APPEND TAPE,Fruit Panic v1.1: Append adds 16 levels
+e228c7ec,,,,,,,APPEND: MENU 3  Y  APPEND TAPE,Fruit Panic v1.0
+43ad22db,,,,,,10,,Space Mouse: the dump lacks the checksum byte (10h) of its D600h block; the loader waits for it
+0c3903fe,,,1,,,,,AX-2 Steal: line 5 CLEARs up to F9FFh (?FC Error with 2 or 3 pages)
+8a1557ab,,,2,,,,,AX-2 Dual: line 30 is SCREEN 2,2,2 (?FC Error with 1 page)
+2a155bac,,,2,,,,,AX-10 Seven: EXECs machine code inside its BASIC text (resets with 1 page)
+5437dcc5,mk2,4,1,,,,PICK THE RED SQUARE: OSD B/W COLOURS,Portopia: N60 Extended BASIC (mkII mode 4; a PC-6001 needs the cartridge) and 1 page; SCREEN 4 colours (Danjuro)

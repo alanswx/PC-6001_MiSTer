@@ -58,6 +58,8 @@ module pc6001_vdg
 	input       [9:0] rollx,
 	input       [7:0] rolly,
 	input      [19:0] pal,           // b19-16 written, b15-0 colours 15-12 (4 bits each)
+	input       [2:0] m4col,         // OSD B/W colours: mode 4 (256 x 192) in colour, as on a TV: 0 red/blue,
+	                                 // 1 blue/red, 2 pink/green, 3 green/pink, 4 none
 	output            vrtc_set,      // the end of vertical sync
 	output            vrtc_clr,      // a line later
 	output            bus_slow,      // C8h b1 = 1: the Z80 waits instead of stopping
@@ -247,6 +249,7 @@ wire        slot = m5 ? slot5 : fetch_slot;
 
 reg  [7:0] f_attr, f_data;
 reg  [7:0] s_attr, s_data, s_pat;    // the group being displayed
+reg  [7:0] s_prev, s_next;           // the bytes either side of it (mode 4 colours)
 
 // The SR mode fetches in slots of 4 dots (16 clks: 8 dots at 14.32 MHz), each for the slot after it: sc 0 the
 // first byte's address (a character / bitmap byte), 1 the second's (its attribute / the next byte), 2 the
@@ -282,6 +285,7 @@ always @(*) begin
 	end
 	else if (fetch_slot) begin
 		if (ph == 2'd0) vaddr = vram_base + (ag ? {7'd0, g_ofs[8:0]} : {7'd0, tcell});
+		else if (ph == 2'd2) vaddr = vram_base + 16'h0200 + {3'd0, g_ofs + 13'd1};   // the next byte (mode 4 colours)
 		else vaddr = vram_base + 16'h0200 + (ag ? {3'd0, g_ofs} : {7'd0, tcell});
 	end
 	cg_addr = m5 ? {1'b1, f_attr[7], vdata, t5_line} : {2'b00, vdata, t_line};
@@ -311,6 +315,10 @@ always @(posedge clk) begin
 			s_attr <= f_attr;
 			s_data <= f_data;
 			s_pat  <= cg_data;
+			// before the line's first byte and after its last: FFh on the PC-6001, 0 on the mkII (PC6001VX
+			// MC6847::Draw1line1, PCZ80_07::Draw1line1)
+			s_prev <= fgrp == 0 ? {8{!mk2}} : s_data;
+			s_next <= fgrp == 5'd31 ? {8{!mk2}} : vdata;
 		end
 		default: ;
 		endcase
@@ -404,6 +412,70 @@ always @(*) begin
 	end
 	if (!disp_on) color = C_BLACK;
 end
+
+// Mode 4 (256 x 192) in colour, as PC6001VX draws it (MC6847core::NJM_TBL, "visibility first"): each pair of
+// dots and the pairs either side (6 bits, the first dot highest) pick two entries of the colour set's row of
+// COL60_CG / COL62_CG: 0 black, 3 white (green), 1 2 4-7 the colours that bleed (STDColor 17-40).
+function automatic [5:0] njm(input [5:0] i);
+	case (i)
+	6'd0,  6'd1,  6'd32, 6'd33: njm = {3'd0, 3'd0};
+	6'd2,  6'd3,  6'd34, 6'd35: njm = {3'd0, 3'd7};
+	6'd4,  6'd5,  6'd6,  6'd7,  6'd36, 6'd37, 6'd38, 6'd39,
+	6'd22, 6'd23, 6'd52, 6'd54, 6'd55: njm = {3'd5, 3'd4};
+	6'd20: njm = {3'd1, 3'd4};
+	6'd8,  6'd9,  6'd11, 6'd24, 6'd25, 6'd26, 6'd27,
+	6'd40, 6'd41, 6'd56, 6'd57, 6'd58, 6'd59: njm = {3'd6, 3'd7};
+	6'd10: njm = {3'd6, 3'd2};
+	6'd42: njm = {3'd2, 3'd2};
+	6'd43: njm = {3'd2, 3'd7};
+	6'd12, 6'd13, 6'd44, 6'd45: njm = {3'd6, 3'd4};
+	6'd14, 6'd15, 6'd46, 6'd47: njm = {3'd6, 3'd3};
+	6'd16, 6'd17, 6'd48, 6'd49: njm = {3'd5, 3'd0};
+	6'd18, 6'd19, 6'd50, 6'd51: njm = {3'd5, 3'd7};
+	6'd21: njm = {3'd1, 3'd1};
+	6'd53: njm = {3'd5, 3'd1};
+	6'd28, 6'd29, 6'd60, 6'd61: njm = {3'd3, 3'd4};
+	default: njm = {3'd3, 3'd3};   // 30, 31, 62, 63
+	endcase
+endfunction
+
+// an entry of the row: STDColor index (13-40), or 0 for the mkII's black, 1 its green, 2 its white
+function automatic [5:0] njm_col(input is_mk2, input set2, input [1:0] mc, input [2:0] k);
+	reg [4:0] o;
+	case (k)
+	3'd1: o = mc == 2'd0 ? 5'd0 : mc == 2'd1 ? 5'd1 : mc == 2'd2 ? 5'd2 : 5'd3;
+	3'd2: o = mc == 2'd0 ? 5'd1 : mc == 2'd1 ? 5'd0 : mc == 2'd2 ? 5'd3 : 5'd2;
+	3'd4: o = mc == 2'd0 ? 5'd4 : mc == 2'd1 ? 5'd6 : mc == 2'd2 ? 5'd8 : 5'd10;
+	3'd5: o = mc == 2'd0 ? 5'd5 : mc == 2'd1 ? 5'd7 : mc == 2'd2 ? 5'd9 : 5'd11;
+	3'd6: o = mc == 2'd0 ? 5'd6 : mc == 2'd1 ? 5'd4 : mc == 2'd2 ? 5'd10 : 5'd8;
+	default: o = mc == 2'd0 ? 5'd7 : mc == 2'd1 ? 5'd5 : mc == 2'd2 ? 5'd11 : 5'd9;
+	endcase
+	if (k == 3'd0) njm_col = is_mk2 ? 6'd0 : set2 ? 6'd15 : 6'd13;
+	else if (k == 3'd3) njm_col = is_mk2 ? (set2 ? 6'd2 : 6'd1) : set2 ? 6'd16 : 6'd14;
+	else njm_col = 6'd17 + (set2 ? 6'd12 : 6'd0) + {1'b0, o};
+endfunction
+
+function automatic [23:0] njm_rgb(input [5:0] c);
+	case (c)
+	6'd0:  njm_rgb = 24'h141414;  6'd1:  njm_rgb = 24'h00FF00;  6'd2:  njm_rgb = 24'hFFFFFF;
+	6'd13: njm_rgb = 24'h046A04;  6'd14: njm_rgb = 24'h53F237;  6'd15: njm_rgb = 24'h1E1E1E;  6'd16: njm_rgb = 24'hE0FFD0;
+	6'd17: njm_rgb = 24'h92520D;  6'd18: njm_rgb = 24'h1CCA79;  6'd19: njm_rgb = 24'h783C5F;  6'd20: njm_rgb = 24'h50BE50;
+	6'd21: njm_rgb = 24'h51C00E;  6'd22: njm_rgb = 24'h458209;  6'd23: njm_rgb = 24'h15DD2F;  6'd24: njm_rgb = 24'h0E9C32;
+	6'd25: njm_rgb = 24'h71D20F;  6'd26: njm_rgb = 24'h348426;  6'd27: njm_rgb = 24'h46C83C;  6'd28: njm_rgb = 24'h04912F;
+	6'd29: njm_rgb = 24'hFF3000;  6'd30: njm_rgb = 24'h26C9FF;  6'd31: njm_rgb = 24'hFF00EC;  6'd32: njm_rgb = 24'h26FF5C;
+	6'd33: njm_rgb = 24'hFF8C40;  6'd34: njm_rgb = 24'h962D00;  6'd35: njm_rgb = 24'h77CFFF;  6'd36: njm_rgb = 24'h1E5096;
+	6'd37: njm_rgb = 24'hFF4083;  6'd38: njm_rgb = 24'h970069;  6'd39: njm_rgb = 24'h77FFA7;  default: njm_rgb = 24'h1E9764;
+	endcase
+endfunction
+
+wire [23:0] data3 = {s_prev, s_data, s_next};
+wire  [4:0] njm_sh = 5'd12 - {2'd0, bit_n[2:1], 1'b0};        // the pair's 6 bits: data3[njm_sh + 5 : njm_sh]
+wire  [5:0] njm_i = data3[njm_sh +: 6];
+wire  [5:0] njm_e = njm(njm_i);
+wire  [5:0] njm_c = njm_col(mk2, b_css, m4col[1:0], bit_n[0] ? njm_e[2:0] : njm_e[5:3]);
+// on: a 256-dot byte (resolution graphics, 32 bytes a row) in the active area with B/W colours chosen
+wire        njm_on = m4col < 3'd4 && ag && !g_wide && b_gm0 && disp_on && !m5 && !srf &&
+                     vactive && h >= H_ACTIVE0 && h < H_ACTIVE0 + 256;
 
 // the mkII: modes 1-4's colour codes in its palette (PC6001VX COL62_AN, _SG, _CG, _RG; the border is black)
 function automatic [3:0] mk2_n60(input [4:0] c);
@@ -526,7 +598,7 @@ end
 
 always @(posedge clk) begin
 	if (ce_pix || (sr && ph == 2'd1)) begin
-		{R, G, B} <= mk2 ? rgb2 : rgb;
+		{R, G, B} <= njm_on ? njm_rgb(njm_c) : mk2 ? rgb2 : rgb;
 		HBlank <= m5 || srf ? h < H5_ACTIVE0 || h >= H5_ACTIVE0 + H_VIS : h >= H_VIS;
 		VBlank <= v >= V_VIS;
 		HSync  <= h >= HS_START && h < HS_END;
