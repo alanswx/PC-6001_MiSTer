@@ -96,8 +96,9 @@ wire signed [23:0] chroma = (ca[1] ? -s_a : ca[0] ? s_a : 24'sd0) + (cb[1] ? -s_
 reg         [7:0] l8;
 reg signed  [8:0] du, dv;
 reg signed [23:0] y2, u2, v2;
+wire       [16:0] lsum = 17'd77 * r_in + 17'd150 * g_in + 17'd29 * b_in;
 always @(posedge clk) begin
-	l8 <= 8'((17'd77 * r_in + 17'd150 * g_in + 17'd29 * b_in) >> 8);
+	l8 <= lsum[15:8];
 	du <= $signed({1'b0, b_in}) - $signed({1'b0, l8});
 	dv <= $signed({1'b0, r_in}) - $signed({1'b0, l8});
 	y2 <= 24'sd5872 * $signed({1'b0, l8});
@@ -105,11 +106,14 @@ always @(posedge clk) begin
 	v2 <= 24'sd2575 * dv;
 end
 function automatic signed [23:0] mod(input signed [23:0] x, input [2:0] a);   // x sin(a * 45 degrees)
-	reg signed [31:0] h;
-	h = (32'(x) * 32'sd181) >>> 8;
+	reg signed [31:0] xe, h;
+	reg signed [23:0] hs;
+	xe = x;
+	h = (xe * 32'sd181) >>> 8;
+	hs = h[23:0];
 	case (a)
-		3'd0: mod = 24'sd0;  3'd1: mod = 24'(h);  3'd2: mod = x;   3'd3: mod = 24'(h);
-		3'd4: mod = 24'sd0;  3'd5: mod = -24'(h); 3'd6: mod = -x;  default: mod = -24'(h);
+		3'd0: mod = 24'sd0;  3'd1: mod = hs;   3'd2: mod = x;   3'd3: mod = hs;
+		3'd4: mod = 24'sd0;  3'd5: mod = -hs;  3'd6: mod = -x;  default: mod = -hs;
 	endcase
 endfunction
 wire signed [23:0] chroma2 = mod(u2, p) + mod(v2, p + 3'd2);
@@ -161,7 +165,8 @@ always @(posedge clk) begin
 	if (old_hb && !hb_in && !vb_in) hb_end <= cnt;
 end
 // (only when clearly later: mode 5 and the SR modes, 8 dots; a sample or two either way is not a shift)
-wire [9:0] hb_ofs = hb_end >= 11'd428 ? 10'((hb_end - 11'd412) >> 2) : 10'd0;
+wire [10:0] hb_d = hb_end - 11'd412;
+wire  [9:0] hb_ofs = hb_end >= 11'd428 ? {1'b0, hb_d[10:2]} : 10'd0;
 wire [9:0] x0 = X0 + hb_ofs + (rgb_in ? 10'd2 : 10'd0);   // the later models' path: 2 dots later
 localparam [8:0] Y0 = 9'd11;
 reg [9:0] px;
