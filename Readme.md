@@ -15,7 +15,7 @@ PC-6001mkIISR (1984).
 | AY-3-8910 (jt49), joysticks on port A | done; tone pitch matches MAME exactly (SOUND 0,254: 492 Hz); jt49's volume steps are 3 dB, MAME's flatter |
 | Cassette: .p6 / .cas / .p6t images, 100 bytes/s while the motor relay is on; 7x turbo; status bar; next-step hint | done: all 73 tapes of the test set load at 7x on a MiSTer (and at 3x in the simulator); 16 give the same result at Normal (docs/CASSETTE_STATUS.md) |
 | Cartridge ROM at 4000-7FFF (up to 16 KB), booted by BASIC's "AB" check | done (12 of 14 carts start; Crowley Manor stops at the same blank screen as in MAME; Touch Panel draws with the mouse as its pad, below) |
-| PC-6031 disk unit (one drive, .d88): its own Z80 running DISK.ROM, 16 KB RAM, a uPD765, the 8255 pair at D0h | done: N60 Extended BASIC formats, saves, lists and loads, in the simulator and on a MiSTer (below) |
+| PC-6031 disk unit (two drives, .d88): its own Z80 running DISK.ROM, 16 KB RAM, a uPD765, the 8255 pair at D0h; on the mkIISR the PC-6031SR's 1DD drives | done: N60 Extended BASIC formats, saves, lists and loads, in the simulator and on a MiSTer; drive 2 and the SR's 1DD disks (Golf Island boots) also on a MiSTer; mkII "SYS" boot disks in the simulator (below) |
 | Touch panel on joystick port 2, worked by the mouse | done: draws in the simulator; on a MiSTer the cursor and taps work (drags not tried yet: the KVM used for testing cannot hold a button). The protocol is from the Touch Panel cartridge's code; no emulator has it |
 | Printer, RS-232C, Senshi no Cartridge (banked) | not yet |
 | PC-6001mkII (Machine > Model): 64 KB RAM, the F0-F3 memory map, the mode menu, modes 1-4 in its colours, mode 5 (N60m: 40x20 text, 320x200 and 160x200 graphics), 16-colour palette, kanji ROM | beta: the mode menu, N60 BASIC and N60m-BASIC match MAME and run on a MiSTer; 61 of 110 mode 5 tapes reach their title in the simulator, Chack'n Pop among them; TALK speaks (uPD7752, below); Composite (TV) is for the PC-6001 only |
@@ -35,7 +35,7 @@ The menu follows the MiSTer computer-core OSD and tape standards:
 | Row | Page | |
 |---|---|---|
 | Cartridge | top | a .rom / .bin / .60 ROM (up to 16 KB); resets the machine, which boots it; not remembered |
-| Disk | top | a .d88 image (up to 512 KB; the PC-6031 is a 1D drive) in its drive 1; the drive's writes go back to the file. Needs DISK.ROM in boot.rom |
+| Disk 1, Disk 2 | top | a .d88 image (up to 512 KB) in drive 1 or 2: 1D disks, and on the mkIISR 1DD ones; the drive's writes go back to the file. Needs DISK.ROM in boot.rom |
 | Tape | top | a .p6 / .cas / .p6t image (up to 64 KB), rewound at each load; not remembered. A .p6t plays its byte image; its gaps are skipped |
 | Load ROM | top | another boot.rom for this session; resets the machine |
 | Memory | top | 32 KB or 16 KB (the PC-6001; the mkII has 64 KB) |
@@ -143,10 +143,26 @@ cartridge, answer "How Many Files?" and "How Many Pages?", then `FILES`, `SAVE"N
 under Extended BASIC). Tested in the simulator and on a MiSTer: format, `SAVE`, `FILES`, `LOAD` and `RUN` after
 a core reload, with the image on the SD card changed.
 
-The image is held in DDR3 while it is mounted (up to 512 KB) and written back to the file 512 bytes at a time as
-the drive changes it, unless it is mounted read-only or its D88 header says protected. Not done yet: a second
-drive, disks larger than 1D, formatting a track the image does not already have (an "unformatted" .d88 with no
-tracks), and booting "SYS" disks (Nyahacks 60).
+The unit has two drives (OSD Disk 1 and Disk 2); the firmware finds both when it starts, so N60 Extended BASIC
+has 79 bytes less free than with one, and drive 2 is `FILES 2`, `LOAD"2:NAME"`. Each image is held in DDR3
+while it is mounted (up to 512 KB) and written back to the file 512 bytes at a time as the drive changes it,
+unless it is mounted read-only or its D88 header says protected.
+
+Main keeps an image at its file size, so a format can only rewrite tracks the image already has: an
+"unformatted" .d88 (the 688-byte header alone) cannot be formatted in the core. `tools/blank_d88.py` writes a
+blank disk with every track there (1D, or `--1dd` for the mkIISR) to format on the machine.
+
+A disk whose track 0 sector 1 starts with "SYS" (Nyahacks 60) is a mkII one: the mkII's BASIC loads that sector
+at F900h and runs it when it starts with a disk in drive 1.
+
+On the mkIISR the unit is the PC-6031SR, with 1DD drives (80 tracks, one side). N66SR-BASIC reads byte 07EFh of
+the unit's ROM to tell the SR unit from the older one, then sends command 17h, which makes the PC-80S31 firmware
+address track t as cylinder t/2, head t&1; the FDC takes the head as the low bit of the cylinder, so track t is
+the disk's cylinder t, as PC6001VX's PC-6031SR reads it. N66SR-BASIC reads every disk as 1DD, so the core does
+too: SR disks whose header says 1D are laid out that way (Hydlide time trial). An image whose header says single
+sided (media 30h, 40h) has its track table indexed by cylinder. In the simulator The Akunin lists and runs and
+the Hydlide time trial boots; on a MiSTer Golf Island boots and reads its course menu from disk, and drive 2
+lists and loads on a PC-6001.
 
 ## Keyboard
 
@@ -155,7 +171,7 @@ Input > Keyboard picks the layout. JP (the default) puts US keys at the position
 a US keyboard (Shift+2 is `@`, Shift+8 is `*`, `'` is `'`, `\` is the yen key); `` ` `` `{` `}` `|` `~` have no
 PC-6001 key and stay as in JP. Kana, GRAPH and CTRL always use the JIS positions, and games that read the keys as
 a joystick see the same keys in both. Held keys repeat after 500 ms, every 50 ms (the sub CPU does this on the
-real machine), except KANA, PAGE, MODE, CAPS, STOP and F1-F5. GRAPH is Alt, STOP is F9 / Pause / End, KANA is F7, MODE is F8, PAGE is Page Up/Down,
+real machine), except KANA, PAGE, MODE, CAPS, STOP and F1-F5. GRAPH is Alt, STOP is F9 / End, KANA is F7 or the JIS kana key, MODE is F8, PAGE is Page Up/Down,
 HOME is Home, INS / DEL are Insert / Delete (and Backspace). F1-F5 are the function keys (with Shift: F6-F10).
 Letters without Shift are lower case, as on the real keyboard.
 

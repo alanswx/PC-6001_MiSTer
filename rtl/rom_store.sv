@@ -44,8 +44,14 @@ wire [1:0] dl_set = ioctl_index[7:6] - 2'd1;
 wire       dl_ours = ioctl_index[5:0] == 0 && ioctl_index[7:6] != 0;
 wire [1:0] cur_set = model - 2'd1;
 
-// downloads: each byte goes to DDR3 with its byte enable; the download waits while one is going out
-reg        wr_pend = 0;
+// downloads: each byte goes to DDR3 with its byte enable; the download waits while one is going out. Main loads
+// boot1-3.rom with the core running, so a copy can be under way when one starts: the copy stops between reads (one
+// is started again at the download's end) and the byte waits for that, rd and we never going out together (the
+// f2sdram port hangs, and Main with it on ioctl_wait).
+reg        wr_pend = 0, wr_out = 0;
+reg [28:0] w_addr;
+reg [63:0] w_din;
+reg  [7:0] w_be;
 assign ioctl_wait = wr_pend;
 
 reg        reset_d = 0, dl_d = 0, copy_req = 0;
@@ -68,19 +74,26 @@ always @(posedge clk) begin
 
 	if (ioctl_download && ioctl_wr && dl_ours) sets[dl_set] <= 1'b1;
 	if (ioctl_download && ioctl_wr && dl_ours && ioctl_addr[24:18] == 0) begin
-		ddr_addr <= BASE + {13'd0, dl_set, 14'd0} + {14'd0, ioctl_addr[17:3]};
-		ddr_din <= {8{ioctl_dout}};
-		ddr_be <= 8'h01 << ioctl_addr[2:0];
-		ddr_we <= 1'b1;
+		w_addr <= BASE + {13'd0, dl_set, 14'd0} + {14'd0, ioctl_addr[17:3]};
+		w_din <= {8{ioctl_dout}};
+		w_be <= 8'h01 << ioctl_addr[2:0];
 		wr_pend <= 1'b1;
 	end
-	else if (wr_pend && (!ddr_we || !ddr_busy)) wr_pend <= 0;
+	else if (wr_pend && !wr_out && !copying) begin
+		ddr_addr <= w_addr;
+		ddr_din <= w_din;
+		ddr_be <= w_be;
+		ddr_we <= 1'b1;
+		wr_out <= 1'b1;
+	end
+	else if (wr_out && (!ddr_we || !ddr_busy)) begin wr_out <= 0; wr_pend <= 0; end
 
 	if (copy_req && !copying && !ioctl_download && !wr_pend) begin
 		copy_req <= 0; copying <= 1'b1; word <= 0; have <= 0; rd_wait <= 0;
 	end
 	else if (copying) begin
-		if (!have && !rd_wait && !ddr_rd) begin
+		if (ioctl_download && dl_ours && !rd_wait) copying <= 0;
+		else if (!have && !rd_wait && !ddr_rd) begin
 			ddr_addr <= BASE + {13'd0, cur_set, 14'd0} + {14'd0, word};
 			ddr_rd <= 1'b1;
 			rd_wait <= 1'b1;

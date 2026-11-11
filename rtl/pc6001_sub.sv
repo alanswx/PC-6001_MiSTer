@@ -218,14 +218,14 @@ function automatic [7:0] ps2_to_p6(input [8:0] code);
 	9'h00e, 9'h06a: ps2_to_p6 = {1'b1, 4'd7, 3'd5};   // yen = US ` / JIS yen
 	9'h003: ps2_to_p6 = {1'b1, 4'd7, 3'd6};   // F5
 	9'h05a, 9'h15a: ps2_to_p6 = {1'b1, 4'd8, 3'd0};   // RETURN
-	9'h001, 9'h177, 9'h169: ps2_to_p6 = {1'b1, 4'd8, 3'd1};   // STOP = F9 / Pause / End
+	9'h001, 9'h169: ps2_to_p6 = {1'b1, 4'd8, 3'd1};   // STOP = F9 / End (not Pause: Main sends no release for it)
 	9'h175: ps2_to_p6 = {1'b1, 4'd8, 3'd2};   // up
 	9'h172: ps2_to_p6 = {1'b1, 4'd8, 3'd3};   // down
 	9'h174: ps2_to_p6 = {1'b1, 4'd8, 3'd4};   // right
 	9'h16b: ps2_to_p6 = {1'b1, 4'd8, 3'd5};   // left
 	9'h00d: ps2_to_p6 = {1'b1, 4'd8, 3'd6};   // TAB
 	9'h076: ps2_to_p6 = {1'b1, 4'd8, 3'd7};   // ESC
-	9'h083: ps2_to_p6 = {1'b1, 4'd9, 3'd0};   // KANA = F7
+	9'h083, 9'h013: ps2_to_p6 = {1'b1, 4'd9, 3'd0};   // KANA = F7 / the JIS kana key
 	9'h170: ps2_to_p6 = {1'b1, 4'd9, 3'd1};   // INS
 	9'h171, 9'h066: ps2_to_p6 = {1'b1, 4'd9, 3'd2};   // DEL = Delete / Backspace
 	9'h17d, 9'h17a: ps2_to_p6 = {1'b1, 4'd9, 3'd3};   // PAGE = PgUp / PgDn

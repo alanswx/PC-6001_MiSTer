@@ -74,6 +74,9 @@ if [ "${TAPES:-0}" = 1 ]; then
 	# formatted in the simulator by the PC-6001 Series Disk Format Program, with TEST saved on it
 	run disk_extbasic 1200 --cart "$C/_OS_N60_Extended_BASIC_Microsoft_/[OS] N60 Extended BASIC (ROM cart).bin" \
 		--disk tests/disk/test.d88 --type '300:\n{WAIT60}\n{WAIT60}FILES\n{WAIT200}LOAD"TEST"\n{WAIT250}LIST 10-30\n'
+	# the same disk in drive 2 (OSD Disk 2): FILES 2, LOAD"2:TEST"
+	run disk_drive2 1300 --cart "$C/_OS_N60_Extended_BASIC_Microsoft_/[OS] N60 Extended BASIC (ROM cart).bin" \
+		--disk2 tests/disk/test.d88 --type '300:\n{WAIT60}\n{WAIT60}FILES 2\n{WAIT200}LOAD"2:TEST"\n{WAIT250}LIST 10-30\n'
 	# touch panel (rtl/touch_panel.sv): the Touch Panel cartridge draws a diagonal then a line back, the pen moving
 	# 2-3 steps a frame (it ignores jumps of 5 or more); the cross is the pen
 	t=(--touch 400:0,0,0); f=500
@@ -107,6 +110,13 @@ if [ "${TAPES:-0}" = 1 ]; then
 	# the PC-6601's built-in drive (rtl/fdc66.sv): N66-BASIC lists and loads TEST from the PC-6031 test disk
 	run p66_disk 1700 --p66 --disk tests/disk/test.d88 \
 		--type '320:5{WAIT100}\n{WAIT100}\n{WAIT100}\n{WAIT60}FILES\n{WAIT150}LOAD"TEST"\n{WAIT250}LIST 10-30\n'
+	# a mkII disk that boots itself: the mkII's BASIC runs track 0 sector 1 when it starts with "SYS" (Nyahacks 60)
+	run mk2_disk_sys 1200 --mk2 --disk "../refs/software/pc6001/d88/Nyahacks_60_Bookworm_/Nyahacks 60.d88"
+	# the mkIISR's PC-6031SR: a 1DD disk (80 tracks) lists in N66SR-BASIC (rtl/upd765_lite.sv, dd)
+	run sr_disk_1dd 1100 --sr --disk "../refs/software/pc6001/d88/The_Akunin_Tinyan_/The Akunin {m6f1 run bp8510.bas}.d88" \
+		--type '300:6{WAIT100}1\n{WAIT200}FILES\n'
+	# an SR boot disk on a 1DD layout (track table by cylinder, media 40h): Golf Island starts by itself
+	run sr_disk_boot 1100 --sr --disk "../refs/software/sr/d88/Golf_Island_Tecno_Soft_/Golf Island (66SR).d88"
 	# a mkII game: Chack'n Pop (mode 5, 1 page; Neo Kobe set) loads at 7x and shows its title screen
 	CP="../refs/software/pc6001/neokobe_full_unzipped/NEC PC-6001/Chack'n Pop (Carry lab)/Chack'n Pop [CT]/Chack'n Pop {m5p1}.cas"
 	run mk2_chackpop 5100 --mk2 --no-disk-unit --tape "$CP" --tape-turbo --type '300:5{WAIT100}1\n{WAIT80}CLOAD\n' \

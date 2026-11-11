@@ -34,7 +34,8 @@ module fdc66
 	output            m_we,
 	output      [7:0] m_d,
 	input             m_ready,
-	input             m_wprot
+	input             m_wprot,
+	input             m_one_side      // the image's track table is indexed by cylinder
 );
 
 wire [7:0] port = addr[7:0];
@@ -97,14 +98,17 @@ upd765_lite fdc
 	.drq_o(fdc_drq),
 	.msr_o(fdc_msr),
 	.res_int(fdc_res_int),
+	.dd(1'b0),
+	.m_drv(),
 	.m_addr(m_addr),
 	.m_rd(m_rd),
 	.m_q(m_q),
 	.m_done(m_done),
 	.m_we(m_we),
 	.m_d(m_d),
-	.m_ready(m_ready),
-	.m_wprot(m_wprot)
+	.m_ready({1'b0, m_ready}),
+	.m_wprot({1'b0, m_wprot}),
+	.m_one_side({1'b0, m_one_side})
 );
 
 // the transfer engine

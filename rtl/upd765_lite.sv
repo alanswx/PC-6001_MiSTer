@@ -4,14 +4,20 @@
 //
 // SPECIFY, SENSE DRIVE STATUS, RECALIBRATE, SEEK, SENSE INTERRUPT STATUS, READ DATA, WRITE DATA, READ ID and
 // FORMAT A TRACK (on a track the image already has with that many sectors of that size); others are invalid.
-// MT and SK are ignored; FM is not supported. Drives 1-3 are not connected: RECALIBRATE fails with an equipment
-// check, as with no drive, so the firmware sees one drive.
+// MT and SK are ignored; FM is not supported. NDRV drives are connected; the others are not: RECALIBRATE fails
+// with an equipment check, as with no drive, so the firmware sees NDRV drives.
 //
 // D88: the track table at 20h holds the offset of track cylinder*2+head (the head's position, not the command's
-// C); each sector is a 16-byte header (C, H, R, N, sectors in the track, density, deleted, status, ..., data
-// size at 14) and its data.
+// C), or of the cylinder for an image the header calls single sided (media 30h, 40h); each sector is a 16-byte
+// header (C, H, R, N, sectors in the track, density, deleted, status, ..., data size at 14) and its data.
+//
+// dd: 1DD drives (80 cylinders, one side), as in the PC-6031SR. The SR tells the PC-80S31 firmware to treat its
+// drives as double sided (command 17h), which then reaches logical track t at cylinder t/2, head t&1. Here the
+// head is the low bit of the cylinder instead: track t is the image's cylinder t, as PC6001VX's PC-6031SR has it,
+// and the sector IDs (C = t, H = 0) are compared and reported that way. N66SR-BASIC reads every disk as 1DD, so
+// every image is: SR disks marked 1D (media 00h) are laid out that way too.
 
-module upd765_lite
+module upd765_lite #(parameter NDRV = 1)
 (
 	input             clk,
 	input             reset,
@@ -28,14 +34,18 @@ module upd765_lite
 	output      [7:0] msr_o,          // the main status register
 	output            res_int,        // a result is waiting, or a seek ended: the interrupt without the data requests
 
+	input             dd,             // 1DD drives (see above)
+
+	output reg        m_drv,          // the drive the image access is for
 	output reg [19:0] m_addr,
 	output reg        m_rd,           // one clk; m_q holds the byte at m_done
 	input       [7:0] m_q,
 	input             m_done,         // a read or write finished
 	output reg        m_we,
 	output reg  [7:0] m_d,
-	input             m_ready,
-	input             m_wprot
+	input       [1:0] m_ready,        // per drive
+	input       [1:0] m_wprot,
+	input       [1:0] m_one_side      // the image's track table is indexed by cylinder
 );
 
 localparam [12:0] T_BYTE = 13'd458;     // 16 us between data bytes
@@ -52,7 +62,7 @@ reg  [7:0] res[0:6];
 reg  [2:0] nres, res_len;
 reg        res_int_r;              // INT at the start of a result phase (read / write / ID / format)
 
-reg  [5:0] pcn;                    // drive 0's cylinder
+reg  [5:0] pcn[0:1];               // each drive's cylinder
 reg        seek_pend;
 reg  [7:0] seek_st0, seek_pcn;
 reg [15:0] seek_cnt;
@@ -62,6 +72,15 @@ wire [4:0] op = cmd[0][4:0];
 wire [1:0] us = cmd[1][1:0];
 wire       hd = cmd[1][2];
 wire [7:0] hdus = {5'd0, cmd[1][2:0]};
+wire       present = us < NDRV;
+
+// the cylinder and head the image is read at, and the ID a sector must have
+wire       map  = dd;
+wire [6:0] cyl  = map ? {pcn[us[0]], hd} : {1'b0, pcn[us[0]]};
+wire       head = map ? 1'b0 : hd;
+wire [7:0] tidx = m_one_side[us[0]] ? {1'b0, cyl} : {cyl, head};
+wire [7:0] id_c = map ? {cmd[2][6:0], cmd[3][0]} : cmd[2];
+wire [7:0] id_h = map ? 8'd0 : cmd[3];
 
 function automatic [3:0] cmd_length(input [4:0] c);
 	case (c)
@@ -79,7 +98,7 @@ endfunction
 
 // execution
 localparam X_TRK = 4'd0, X_HDR = 4'd1, X_MATCH = 4'd2, X_DATA = 4'd3, X_GAP = 4'd4, X_FID = 4'd5,
-           X_FILL = 4'd6, X_DONE = 4'd7;
+           X_FILL = 4'd6, X_DONE = 4'd7, X_FWID = 4'd8;
 reg  [3:0] xs;
 reg  [2:0] bi;                     // byte index while reading the track table
 reg  [3:0] hi;                     // header byte index
@@ -131,7 +150,7 @@ always @(posedge clk) begin
 		phase <= P_CMD;
 		ncmd <= 0;
 		res_int_r <= 0;
-		pcn <= 0;
+		pcn[0] <= 0; pcn[1] <= 0;
 		seek_pend <= 0;
 		seeking <= 0;
 		drq <= 0;
@@ -149,6 +168,7 @@ always @(posedge clk) begin
 		P_CMD:
 			if (wr && a0) begin
 				cmd[ncmd] <= din;
+				if (ncmd == 1) m_drv <= din[0];
 				if (ncmd == 0) cmd_len <= cmd_length(din[4:0]);
 				if ((ncmd == 0 && cmd_length(din[4:0]) == 1) || (ncmd != 0 && ncmd + 1'd1 == cmd_len)) begin
 					ncmd <= 0;
@@ -172,12 +192,12 @@ always @(posedge clk) begin
 			5'h03: phase <= P_CMD;                                   // specify: nothing to keep
 			5'h04: begin                                             // sense drive status: ST3
 				// a two-sided drive (TS): DISK.ROM waits for it before each transfer; the disk's sides are its own
-				res[0] <= us == 0 ? {1'b0, m_wprot, 1'b1, pcn == 0, 1'b1, hd, us} : {5'd0, hd, us};
+				res[0] <= present ? {1'b0, m_wprot[us[0]], 1'b1, pcn[us[0]] == 0, 1'b1, hd, us} : {5'd0, hd, us};
 				res_len <= 3'd1; nres <= 0; phase <= P_RES;
 			end
 			5'h07, 5'h0f: begin                                      // recalibrate, seek
-				if (us == 0) begin
-					pcn <= op == 5'h07 ? 6'd0 : cmd[2][5:0];
+				if (present) begin
+					pcn[us[0]] <= op == 5'h07 ? 6'd0 : cmd[2][5:0];
 					seek_st0 <= {8'h20 | {6'd0, us}};
 					seek_pcn <= op == 5'h07 ? 8'd0 : cmd[2];
 				end
@@ -201,17 +221,17 @@ always @(posedge clk) begin
 				if (!(is_read || is_write || is_rid || is_fmt)) begin   // invalid
 					res[0] <= 8'h80; res_len <= 3'd1; nres <= 0; phase <= P_RES;
 				end
-				else if (us != 0 || !m_ready) begin
+				else if (!present || !m_ready[us[0]]) begin
 					result7(8'h48 | hdus, 8'h00, 8'h00, cmd[2], cmd[3], cmd[4], cmd[5]);   // not ready
 				end
-				else if ((is_write || is_fmt) && m_wprot) begin
+				else if ((is_write || is_fmt) && m_wprot[us[0]]) begin
 					result7(8'h40 | hdus, 8'h02, 8'h00, cmd[2], cmd[3], cmd[4], cmd[5]);   // not writable
 				end
 				else case (xs)
 				// the track's offset from the table at 20h
 				X_TRK: begin
 					if (mw == 0) begin
-						if (!m_pend) begin m_addr <= 20'h20 + {pcn, hd, 2'b00} + bi; m_rd <= 1'b1; mw <= 1; end
+						if (!m_pend) begin m_addr <= 20'h20 + {10'd0, tidx, 2'b00} + bi; m_rd <= 1'b1; mw <= 1; end
 					end
 					else if (m_done) begin
 						mw <= 0;
@@ -259,9 +279,10 @@ always @(posedge clk) begin
 						end
 					end
 				X_MATCH:
-					if (is_rid || (h_c == cmd[2] && h_h == cmd[3] && h_r == r_cur && h_n == cmd[5] && h_dens != 8'h40)) begin
+					if (is_rid || (h_c == id_c && h_h == id_h && h_r == r_cur && h_n == cmd[5] && h_dens != 8'h40)) begin
 						if (is_rid) begin
-							result7(hdus, 8'h00, 8'h00, h_c, h_h, h_r, h_n);
+							if (map) result7(hdus, 8'h00, 8'h00, {1'b0, h_c[7:1]}, {7'd0, h_c[0]}, h_r, h_n);
+							else result7(hdus, 8'h00, 8'h00, h_c, h_h, h_r, h_n);
 						end
 						else begin
 							if (h_st != 0) begin st0 <= 8'h40; st1 <= 8'h20; st2 <= 8'h20; end   // data CRC error
@@ -336,9 +357,21 @@ always @(posedge clk) begin
 					else if (wr && a0) begin
 						drq <= 0;
 						fid[fi] <= din;
-						m_addr <= soff + fi;
-						m_d <= din; m_we <= 1'b1; m_pend <= 1'b1;
 						tmr <= T_BYTE;
+						fi <= fi + 1'd1;
+						if (fi == 3) xs <= X_FWID;
+					end
+				// the sector's ID into its header (a 1DD image: C = t, H = 0)
+				X_FWID:
+					if (m_pend || m_we) ;
+					else begin
+						m_addr <= soff + fi;
+						case (fi)
+						2'd0: m_d <= map ? {fid[0][6:0], fid[1][0]} : fid[0];
+						2'd1: m_d <= map ? 8'd0 : fid[1];
+						default: m_d <= fid[fi];
+						endcase
+						m_we <= 1'b1; m_pend <= 1'b1;
 						fi <= fi + 1'd1;
 						if (fi == 3) begin di <= 0; xs <= X_FILL; end
 					end

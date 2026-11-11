@@ -68,8 +68,9 @@ localparam CONF_STR = {
 	"-;",
 	// A cartridge boots at reset, so it is not remembered either: a core start goes to BASIC.
 	"F2,ROMBIN60,Cartridge;",
-	// PC-6031 disk unit, when boot.rom has DISK.ROM: a .d88 image, written back as the drive changes it
-	"S0,D88,Disk;",
+	// PC-6031 disk unit, when boot.rom has DISK.ROM: .d88 images for its two drives, written back as they change
+	"S0,D88,Disk 1;",
+	"S1,D88,Disk 2;",
 	// The whole image is loaded into the core; not remembered (F, not FC), so a core start has no tape.
 	"F1,P6 CASP6T,Tape;",
 	"F0,ROM,Load ROM;",
@@ -122,14 +123,15 @@ wire         ioctl_wr;
 wire  [26:0] ioctl_addr;
 wire   [7:0] ioctl_dout;
 
-wire        img_mounted, img_readonly, sd_rd, sd_wr, sd_ack, sd_buff_wr;
+wire        img_readonly, sd_buff_wr;
+wire  [1:0] img_mounted, sd_rd, sd_wr, sd_ack;
 wire [63:0] img_size;
 wire [31:0] sd_lba;
 wire  [8:0] sd_buff_addr;
 wire  [7:0] sd_buff_dout, sd_buff_din;
 wire        disk_ready, disk_too_big, disk_motor, disk_unit;
 
-hps_io #(.CONF_STR(CONF_STR), .VDNUM(1)) hps_io
+hps_io #(.CONF_STR(CONF_STR), .VDNUM(2)) hps_io
 (
 	.clk_sys(clk_sys),
 	.HPS_BUS(HPS_BUS),
@@ -161,14 +163,14 @@ hps_io #(.CONF_STR(CONF_STR), .VDNUM(1)) hps_io
 	.img_mounted(img_mounted),
 	.img_readonly(img_readonly),
 	.img_size(img_size),
-	.sd_lba('{sd_lba}),
-	.sd_blk_cnt('{6'd0}),
+	.sd_lba('{sd_lba, sd_lba}),
+	.sd_blk_cnt('{6'd0, 6'd0}),
 	.sd_rd(sd_rd),
 	.sd_wr(sd_wr),
 	.sd_ack(sd_ack),
 	.sd_buff_addr(sd_buff_addr),
 	.sd_buff_dout(sd_buff_dout),
-	.sd_buff_din('{sd_buff_din}),
+	.sd_buff_din('{sd_buff_din, sd_buff_din}),
 	.sd_buff_wr(sd_buff_wr)
 );
 
@@ -344,10 +346,10 @@ always @(posedge clk_sys) begin
 		tape_info_req <= 1;
 	end
 	// a disk mounted: too large, or no unit to put it in
-	old_mount <= img_mounted;
+	old_mount <= |img_mounted;
 	if (old_mount && !img_mounted && img_size != 0) begin
 		if (!disk_unit) begin tape_info <= 8'd5; tape_info_req <= 1; end
-		else if (img_size > 64'd180224) begin tape_info <= 8'd4; tape_info_req <= 1; end
+		else if (img_size > 64'd524288) begin tape_info <= 8'd4; tape_info_req <= 1; end
 	end
 end
 

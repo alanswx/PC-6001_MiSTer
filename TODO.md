@@ -1,9 +1,10 @@
 # TODO
 
 ## PC-6001
-- Disk unit (rtl/pc6031.sv, runs DISK.ROM): a second drive; 2D / larger images; FORMAT of tracks the image lacks
-  (an unformatted .d88); booting "SYS" disks such as Nyahacks 60 (how does a PC-6001 start one?); the PC-6031SR's
-  extra commands. The firmware is the PC-80S31's: compare with a PC-6031 dump if one turns up.
+- Disk unit (rtl/pc6031.sv, runs DISK.ROM; two drives and the SR's 1DD done 2026-11-10, both tried on a
+  MiSTer): more SR disk software; saving to drive 2 and to a 1DD disk on a MiSTer; a PC-6001 1D disk on the SR (read as 1DD there, as N66SR-BASIC does).
+  The firmware is the PC-80S31's: compare with a PC-6031 / PC-6031SR dump if one turns up. Unformatted images
+  cannot grow (Main keeps the file size): tools/blank_d88.py writes full-size blanks.
 - .p6t: play the footer's gaps (silence, carrier) and 600 baud blocks; only the byte image plays now (with a
   half-second gap before each machine-code sync, six 9Ch, after the start).
 - Cartridges: Senshi no Cartridge (PC6001VX EXCSOL1 on a PC-6001: 128 KB ROM in 8 KB banks at 4000h, picked by
@@ -29,6 +30,9 @@
   (tapes, disks); the 6601SR (SYSTEMROM*.68 are not here); the 8251 at 80h-81h.
 
 ## Next
+- Testers' report 2026-11-10 (fixed in the next build): a later model saved in the cfg froze Main at the core's
+  start (rtl/rom_store.sv: the ROM copy's DDR3 read went out with boot*.rom's write); Pause left STOP held; the
+  JIS kana key was not KANA. Check the PC-8001 core's same fix on a MiSTer.
 - Wrong-model hint (done: rtl/tape_auto.sv): watch the testers' reports for false alarms (C1-C3, F0-F3, E0-E3
   written on a PC-6001; C8 with b0 = 0, 40-43, 60-6F on a mkII).
 - Game list (done: rtl/pc6001_gamelist.svh from tools/gamelist.py, 571 tapes): more collections and testers'

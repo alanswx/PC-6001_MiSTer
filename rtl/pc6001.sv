@@ -86,14 +86,14 @@ module pc6001 #(
 	output      [1:0] model_req,
 	output            cart_too_big,    // the image was larger than 16 KB (cut off)
 
-	// PC-6031 disk unit (rtl/pc6031.sv): its firmware is DISK.ROM at 5000h in the ROM download
-	input             img_mounted,
+	// PC-6031 disk unit (rtl/pc6031.sv): its firmware is DISK.ROM at 5000h in the ROM download; drives 1 and 2
+	input       [1:0] img_mounted,
 	input             img_readonly,
 	input      [63:0] img_size,
 	output     [31:0] sd_lba,
-	output            sd_rd,
-	output            sd_wr,
-	input             sd_ack,
+	output      [1:0] sd_rd,
+	output      [1:0] sd_wr,
+	input       [1:0] sd_ack,
 	input       [8:0] sd_buff_addr,
 	input       [7:0] sd_buff_dout,
 	output      [7:0] sd_buff_din,
@@ -899,6 +899,7 @@ pc6031 fdd
 	.rom_addr(ioctl_addr[10:0]),
 	.rom_d(ioctl_dout),
 	.rom_ok(disk_rom_ok),
+	.dd(sr),
 	.addr(A[1:0]),
 	.rd(io_rd & sel_fdd),
 	.wr(io_wr & sel_fdd),
@@ -933,6 +934,7 @@ pc6031 fdd
 	.ext_m_done(m66_done),
 	.ext_m_ready(m66_ready),
 	.ext_m_wprot(m66_wprot),
+	.ext_m_one_side(m66_one_side),
 	.disk_ready(disk_ready),
 	.disk_too_big(disk_too_big),
 	.motor(disk_motor)
@@ -985,7 +987,7 @@ rom_store rom_store
 // the PC-6601's built-in drive, on the same disk image
 wire [19:0] m66_addr;
 wire  [7:0] m66_d, m66_q, fdc66_dout;
-wire        m66_rd, m66_we, m66_done, m66_ready, m66_wprot;
+wire        m66_rd, m66_we, m66_done, m66_ready, m66_wprot, m66_one_side;
 fdc66 fdc66
 (
 	.clk(clk_sys),
@@ -1004,7 +1006,8 @@ fdc66 fdc66
 	.m_we(m66_we),
 	.m_d(m66_d),
 	.m_ready(m66_ready),
-	.m_wprot(m66_wprot)
+	.m_wprot(m66_wprot),
+	.m_one_side(m66_one_side)
 );
 
 reg [7:0] io_dout;

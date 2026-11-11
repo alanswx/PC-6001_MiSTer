@@ -1,4 +1,4 @@
-// PC-6031 mini disk unit (one drive), running its own firmware: a Z80 at 4 MHz with DISK.ROM (the PC-80S31's
+// PC-6031 mini disk unit (two drives), running its own firmware: a Z80 at 4 MHz with DISK.ROM (the PC-80S31's
 // 2 KB ROM, MAME disk.rom sha1 bb7103a0...), 16 KB of RAM, a uPD765 and an 8255 that faces the PC-6001's 8255 at
 // D0h-D3h. The two 8255s are wired as in CSCP (vm/pc6001/pc6001.cpp with DISK.ROM): each side's port B drives
 // the other's port A, and the halves of port C cross.
@@ -8,7 +8,9 @@
 // PC80S31K::get_intr_ack gives NOP), since the firmware stays in interrupt mode 0.
 //
 // The firmware treats a drive as single sided (cylinder = track) until the host says otherwise, which suits the
-// PC-6001's 1D disks.
+// PC-6001's 1D disks. On the mkIISR (dd) the drives are the PC-6031SR's 1DD ones (rtl/upd765_lite.sv).
+//
+// Drive 1 is always there: the firmware finds it when it starts, and BASIC asks how many drives to use.
 
 module pc6031
 (
@@ -20,6 +22,7 @@ module pc6031
 	input      [10:0] rom_addr,
 	input       [7:0] rom_d,
 	input             rom_ok,         // DISK.ROM was loaded: without it the unit is not connected
+	input             dd,             // 1DD drives: the PC-6031SR
 
 	// the PC-6001 side: ports D0h-D3h
 	input       [1:0] addr,
@@ -28,14 +31,14 @@ module pc6031
 	input       [7:0] din,
 	output      [7:0] dout,
 
-	// the disk image (hps_io S0)
-	input             img_mounted,
+	// the disk images (hps_io S0, S1)
+	input       [1:0] img_mounted,
 	input             img_readonly,
 	input      [63:0] img_size,
 	output     [31:0] sd_lba,
-	output            sd_rd,
-	output            sd_wr,
-	input             sd_ack,
+	output      [1:0] sd_rd,
+	output      [1:0] sd_wr,
+	input       [1:0] sd_ack,
 	input       [8:0] sd_buff_addr,
 	input       [7:0] sd_buff_dout,
 	output      [7:0] sd_buff_din,
@@ -62,6 +65,7 @@ module pc6031
 	output            ext_m_done,
 	output            ext_m_ready,
 	output            ext_m_wprot,
+	output            ext_m_one_side,
 
 	output            disk_ready,
 	output            disk_too_big,
@@ -153,9 +157,10 @@ end
 // the uPD765 and the disk
 wire [19:0] m_addr;
 wire  [7:0] m_q, m_d, fdc_dout;
-wire        m_rd, m_done, m_we, m_ready, m_wprot;
+wire        m_rd, m_done, m_we, m_drv;
+wire  [1:0] m_ready, m_wprot, m_one_side;
 
-upd765_lite fdc
+upd765_lite #(.NDRV(2)) fdc
 (
 	.clk(clk),
 	.reset(drv_reset),
@@ -166,6 +171,9 @@ upd765_lite fdc
 	.dout(fdc_dout),
 	.tc(io_rd & sel_f8),
 	.int_o(fdc_int),
+	.exec(), .drq_o(), .msr_o(), .res_int(),
+	.dd(dd),
+	.m_drv(m_drv),
 	.m_addr(m_addr),
 	.m_rd(m_rd),
 	.m_q(m_q),
@@ -173,7 +181,8 @@ upd765_lite fdc
 	.m_we(m_we),
 	.m_d(m_d),
 	.m_ready(m_ready),
-	.m_wprot(m_wprot)
+	.m_wprot(m_wprot),
+	.m_one_side(m_one_side)
 );
 
 // not reset with the machine: a reset keeps the disk
@@ -192,6 +201,7 @@ d88_media media
 	.sd_buff_dout(sd_buff_dout),
 	.sd_buff_din(sd_buff_din),
 	.sd_buff_wr(sd_buff_wr),
+	.drv(ext_sel ? 1'b0 : m_drv),
 	.addr(ext_sel ? ext_m_addr : m_addr),
 	.rd(ext_sel ? ext_m_rd : m_rd),
 	.we(ext_sel ? ext_m_we : m_we),
@@ -200,6 +210,7 @@ d88_media media
 	.done(m_done),
 	.ready(m_ready),
 	.wprot(m_wprot),
+	.one_side(m_one_side),
 	.too_big(disk_too_big),
 	.ddr_busy(ddr_busy),
 	.ddr_burstcnt(ddr_burstcnt),
@@ -211,11 +222,12 @@ d88_media media
 	.ddr_be(ddr_be),
 	.ddr_we(ddr_we)
 );
-assign disk_ready = m_ready;
+assign disk_ready = m_ready[0];
 assign ext_m_q = m_q;
 assign ext_m_done = m_done;
-assign ext_m_ready = m_ready;
-assign ext_m_wprot = m_wprot;
+assign ext_m_ready = m_ready[0];
+assign ext_m_wprot = m_wprot[0];
+assign ext_m_one_side = m_one_side[0];
 
 // the two 8255s
 wire [7:0] h_pa, h_pb, h_pc, d_pa, d_pb, d_pc, h_dout, d_dout;

@@ -52,14 +52,14 @@ module top #(
    input   [7:0] ioctl_dout,
    output        ioctl_wait,
 
-   // the disk image, as hps_io's S0 (sim_headless.cpp serves the blocks)
-   input         img_mounted,
+   // the disk images, as hps_io's S0 and S1 (sim_headless.cpp serves the blocks)
+   input   [1:0] img_mounted,
    input         img_readonly,
    input  [63:0] img_size,
    output [31:0] sd_lba,
-   output        sd_rd,
-   output        sd_wr,
-   input         sd_ack,
+   output  [1:0] sd_rd,
+   output  [1:0] sd_wr,
+   input   [1:0] sd_ack,
    input   [8:0] sd_buff_addr,
    input   [7:0] sd_buff_dout,
    output  [7:0] sd_buff_din,
@@ -205,7 +205,7 @@ tape_overlay #(.FACTOR(4'(TURBO))) tape_overlay_i
 );
 
 
-// DDR3 (sys/ddr_svc's side of emu): 512 KB at the disk image's base, one access at a time, busy now and then and
+// DDR3 (sys/ddr_svc's side of emu): from the disk images' base, one access at a time, busy now and then and
 // reads coming back some clocks later, as the real one
 wire        ddr_rd, ddr_we;
 wire [28:0] ddr_addr;
@@ -213,7 +213,7 @@ wire [63:0] ddr_din;
 wire  [7:0] ddr_be;
 reg  [63:0] ddr_dout;
 reg         ddr_dout_ready = 0;
-reg  [63:0] ddr_mem[0:262143];   // 2 MB: the disk image at 0, the ROM store at 20000h words
+reg  [63:0] ddr_mem[0:262143];   // 2 MB: the disk images at 0 and 10000h words, the ROM store at 20000h
 reg   [3:0] ddr_lat = 0;
 reg  [17:0] ddr_ra;
 reg   [7:0] ddr_lfsr = 8'h5a;
@@ -221,6 +221,7 @@ wire        ddr_busy = ddr_lfsr[0] & ddr_lfsr[3] | ddr_lat != 0;
 always @(posedge clk_sys) begin
    ddr_lfsr <= {ddr_lfsr[6:0], ddr_lfsr[7] ^ ddr_lfsr[5] ^ ddr_lfsr[4] ^ ddr_lfsr[3]};
    ddr_dout_ready <= 0;
+   if (ddr_rd && ddr_we) $display("ddr: rd and we together at %h", ddr_addr);
    if (ddr_lat != 0) begin
       ddr_lat <= ddr_lat - 1'd1;
       if (ddr_lat == 1) begin ddr_dout <= ddr_mem[ddr_ra]; ddr_dout_ready <= 1; end
