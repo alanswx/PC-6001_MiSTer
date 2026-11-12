@@ -50,8 +50,8 @@ assign BUTTONS = 0;
 
 wire [1:0] ar = cfg[122:121];
 
-assign VIDEO_ARX = (!ar) ? 12'd4 : (ar - 1'd1);
-assign VIDEO_ARY = (!ar) ? 12'd3 : 12'd0;
+assign VIDEO_ARX = (!ar) ? 12'd8 : (ar - 1'd1);   // 320 dots at 7.16 MHz by 240 lines: 8:7 on a TV
+assign VIDEO_ARY = (!ar) ? 12'd7 : 12'd0;
 
 // The OSD follows the computer-core OSD and tape standards: media on the top page (an MGL can only name rows
 // there), then the Machine, Video and Input pages. Settings take effect at the next reset (cfg) and "Changes
