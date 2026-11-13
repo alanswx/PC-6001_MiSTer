@@ -37,6 +37,25 @@
   written on a PC-6001; C8 with b0 = 0, 40-43, 60-6F on a mkII).
 - Game list (done: rtl/pc6001_gamelist.svh from tools/gamelist.py, 571 tapes): more collections and testers'
   notes; a disk list (.d88) the same way; the hint for Tape auto-start Off (shown only once typing ends now).
+- Testers' report 2026-11-12 (Danjuro): the model follows the tape both ways (the list's model, or N60m-BASIC
+  seen in the tape); a new tape resets unless a game waits for it at the last tape's end; tapes up to 128 KB
+  (the two Yokai Tantei Chima Chima .p6t, 132 KB, are still too large); Tiny Druaga MkII is mode 5. Open: Tiny
+  Xevious 2 "stretched vertically" (every screen has the same dot shape here: ask for a photo). Door Door's
+  PC-6001 version showed "made for the mkII": it writes the mkII's port F3h (PC 803Fh) once a game starts; no
+  port hint now for a tape the list gives the running model.
+- Testers' report 2026-11-12 (zivago): Umibe no Monogatari's part 2 gave ?FC Error (the reset at its mount lost
+  part 1's machine code): the list's {next} mark, no reset. 34 two-part sets then run on Mister 126
+  (runs/parts): marked {next} White Day Happening!, Tanabata, Magnet Bead (?FC Error before); marked {next}\nRUN
+  (part 1 CLOADs part 2 and stops at Ok: RUN typed when the tape stops) Orkanoid II, Cube Puzzle, Watashi no Kare
+  wa Pilot Game, Slayer and its T-En. Slayer lost the first bytes after part 2's header (part 1 CLOADs it in
+  SCREEN 3, "Found:" is slow to draw): a BASIC header is now followed by 50 byte times of gap. Worked unmarked:
+  White Road, Kirei ni Naritai, Forts, Ichigo no Utage, Kyoufu - Toukousha no Noroi, Save Me, Cyber Village,
+  Slender Island, Prohibition Island, UFO vs. You, Living Armor. Runner and Circumference - Onion House
+  begin with noise before the D3 header: the header is found after up to 118 bytes of it. Circumference's part 1
+  holds the gap's noise as bytes before the raw machine code its RUN reads: the list types only CLOAD, and RUN at
+  part 2's mount. Windy Wolf: {next}. Slayer II's part 2 runs with the gap (part 3, loaded at the game's end, not
+  run). AX-8 Galaxy Mission's two parts each start alone. All on Mister 126. Open: the hint "AT OK: MOUNT PART 2"
+  did not show for Circumference's part 1 there; Legends of Star Arthur and Ankoku not run.
 - Composite for the mkII, PC-6601 and SR (done: their RGB as NTSC into the same decoder): tune against PC6001VX's
   NTSC filter and photos of real machines; the SR's 640-dot modes.
 

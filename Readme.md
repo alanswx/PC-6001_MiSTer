@@ -36,7 +36,7 @@ The menu follows the MiSTer computer-core OSD and tape standards:
 |---|---|---|
 | Cartridge | top | a .rom / .bin / .60 ROM (up to 16 KB); resets the machine, which boots it; not remembered |
 | Disk 1, Disk 2 | top | a .d88 image (up to 512 KB) in drive 1 or 2: 1D disks, and on the mkIISR 1DD ones; the drive's writes go back to the file. Needs DISK.ROM in boot.rom |
-| Tape | top | a .p6 / .cas / .p6t image (up to 64 KB), rewound at each load; not remembered. A .p6t plays its byte image; its gaps are skipped |
+| Tape | top | a .p6 / .cas / .p6t image (up to 128 KB), rewound at each load; not remembered. A .p6t plays its byte image; its gaps are skipped |
 | Load ROM | top | another boot.rom for this session; resets the machine |
 | Memory | top | 32 KB or 16 KB (the PC-6001; the mkII has 64 KB) |
 | Model | Machine | PC-6001 (default), PC-6001mkII (its ROMs in boot1.rom, below), PC-6601 (boot2.rom) or PC-6001mkIISR (boot3.rom) |
@@ -79,7 +79,19 @@ after each stop of the motor the next part (`TYPE RUN ↵`) until Return is pres
 (EL6::SetAutoStart): after a reset it answers the mode menu and "How Many Pages?" (and "How Many Files?" when a
 disk unit is there), then types the command, Return at its line ends, and after CLOAD waits for the tape motor
 to start and stop again. Mounting such a tape resets the machine first, unless a program is waiting for the tape
-(the motor on, or the cassette open for loading), as for a game's second tape.
+(the motor on and the cassette open for loading, with the last tape played out), as for a game's second tape. A
+CLOAD the core typed that is still waiting (it found no program) does not count as one.
+
+The game list (rtl/pc6001_gamelist.svh, made by tools/gamelist.py from the collections' names and readmes and
+tools/gamelist_fixes.csv) wins over what the tape shows: a CRC-32 of the file finds its mode, pages, keys, a hint
+and its model. With auto-start the list's model is switched to before the typing (OSD Model follows), up or
+down: a PC-6001 tape mounted on a mkII goes back to the PC-6001; a mkII tape stays on a PC-6601. A tape the list
+does not place is switched up for when it shows N60m-BASIC itself (a monitor tape, a BASIC text at 8801h or
+C801h, a footer's mode 3-6). Without the model's ROMs, or with auto-start Off, the corner says which model the
+tape was made for and nothing is typed. A tape the list marks as a later part ({next} in the fixes: Umibe no
+Monogatari's part 2, which calls the machine code part 1's RUN left in memory) is never reset for: once the tape
+before it was typed through, mounting it types only CLOAD and RUN; with {next} and RUN alone (Orkanoid II, Slayer: part 1 CLOADs part 2 itself and stops at Ok) RUN is typed when that load's motor stops. A BASIC header is found after up to 118 bytes of noise at the image's start (Runner). The corner says so too when a program writes a port only a later model
+has, unless the list gives the tape to the running model (Door Door's PC-6001 version sets a mkII port).
 
 Turbo: while the motor relay is on, the Z80 runs 7 times as fast (27.96 MHz). The tape bytes, the 2 ms timer and
 the sub CPU's delays all count Z80 states, so a loader sees the same timing it sees at 1x; the PSG and the video

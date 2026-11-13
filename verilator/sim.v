@@ -42,8 +42,8 @@ module top #(
    input  [24:0] ps2_mouse,
    output        tape_motor /*verilator public_flat*/,
    output        tape_loaded /*verilator public_flat*/,
-   output [16:0] tape_position /*verilator public_flat*/,
-   output [16:0] tape_length /*verilator public_flat*/,
+   output [17:0] tape_position /*verilator public_flat*/,
+   output [17:0] tape_length /*verilator public_flat*/,
 
    input         ioctl_download,
    input   [7:0] ioctl_index,
@@ -169,7 +169,7 @@ tape_status tape_status
 (
    .clk(clk_sys),
    .loaded(tape_loaded | hint_force), .playing(tape_motor && !hint_force), .fast(tape_turbo_on),
-   .position({15'd0, tape_position}), .length({15'd0, tape_length}), .hz(18'd100),
+   .position({14'd0, tape_position}), .length({14'd0, tape_length}), .hz(18'd100),
    .hint_show(hint_show), .hint_two(hint_two), .hint_text(hint_text),
    .status(tape_status_word), .req(tape_status_req), .ack(tape_status_ack)
 );

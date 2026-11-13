@@ -22,7 +22,7 @@
 //
 //  ROM download (ioctl index 0, boot.rom or Load ROM): BASICROM.60 at 0, CGROM60.60 at 4000h.
 //  Cartridge (ioctl index 2): a .rom/.bin image; BASIC boots it at reset when it starts with "AB".
-//  Tape (ioctl index 1): a .p6/.cas byte image, or a .p6t (its byte image plays), up to 64 KB. While the motor
+//  Tape (ioctl index 1): a .p6/.cas byte image, or a .p6t (its byte image plays), up to 128 KB. While the motor
 //  relay (B0 b3) is on, one byte goes to the sub CPU every 1/100 s (1200 baud, 1 start + 8 data + 3 stop bits), as
 //  PC6001VX's tape.cpp.
 //============================================================================
@@ -73,10 +73,10 @@ module pc6001 #(
 
 	output            tape_motor,
 	output            tape_loaded,
-	output            tape_too_big,    // the image was larger than 64 KB (cut off)
+	output            tape_too_big,    // the image was larger than 128 KB (cut off)
 	output            tape_turbo_on,
-	output     [16:0] tape_position,   // bytes played
-	output     [16:0] tape_length,
+	output     [17:0] tape_position,   // bytes played
+	output     [17:0] tape_length,
 	output            hint_show,       // what to type, while the deck is stopped (rtl/tape_auto.sv)
 	output            hint_two,
 	output    [383:0] hint_text,
@@ -619,9 +619,9 @@ pc6001_sub sub
 
 // Tape
 wire        tape_wr = ioctl_download && ioctl_wr && ioctl_index[5:0] == 6'd1;
-reg   [7:0] tape_mem[0:65535];
+reg   [7:0] tape_mem[0:131071];
 reg   [7:0] tape_q;
-reg  [16:0] tape_len = 0, tape_pos = 0;
+reg  [17:0] tape_len = 0, tape_pos = 0;
 reg  [15:0] tape_tick = 0;
 reg         tape_strobe;
 wire        tape_ready;
@@ -645,22 +645,27 @@ assign tape_length   = tape_len;
 // (Space Mouse 2's loader: two of six 9Ch gone, the data never found)
 wire        ta_busy, ta_len_set, ta_app;
 wire  [7:0] ta_app_d;
-wire [15:0] ta_addr, ta_len;
+wire [16:0] ta_addr, ta_len;
 // When the motor stops with only 00h/FFh left (a BASIC tape's padding), the tape is at its end: a loader started
 // by RUN then waits for the next tape instead of taking the padding as data (Slender Island: CLOAD part 1, swap,
 // RUN reads part 2 raw, with no sync)
 localparam   GAP = 7'd50;
 reg         trim = 0, trim_ph, tape_motor_l;
-reg  [16:0] trim_a;
+reg  [17:0] trim_a;
 reg         look = 0, need_look = 0, q_pos;
 reg   [2:0] look_n;
 reg   [6:0] gap = 0;
-wire [15:0] tape_raddr = ta_busy ? ta_addr : trim | look ? trim_a[15:0] : tape_pos[15:0];
+// A BASIC file's header (ten D3h, six name bytes) is followed by GAP byte times too, as CSAVE leaves a carrier
+// there (a .p6t's footer says 600 ms): BASIC prints "Found:" before it reads on, and on a graphics screen that
+// takes longer than its buffer holds (Slayer: part 1 CLOADs part 2 in SCREEN 3, the first line's number was lost)
+reg   [3:0] d3_n = 0;
+reg   [2:0] nm_n = 0;
+wire [16:0] tape_raddr = ta_busy ? ta_addr : trim | look ? trim_a[16:0] : tape_pos[16:0];
 always @(posedge clk_sys) begin
-	if (tape_wr) tape_mem[ioctl_addr[15:0]] <= ioctl_dout;
-	else if (ta_app) tape_mem[tape_len[15:0]] <= ta_app_d;   // the game list's byte after the image
+	if (tape_wr) tape_mem[ioctl_addr[16:0]] <= ioctl_dout;
+	else if (ta_app) tape_mem[tape_len[16:0]] <= ta_app_d;   // the game list's byte after the image
 	tape_q <= tape_mem[tape_raddr];
-	q_pos <= tape_raddr == tape_pos[15:0];   // tape_q is the byte at tape_pos
+	q_pos <= tape_raddr == tape_pos[16:0];   // tape_q is the byte at tape_pos
 end
 
 always @(posedge clk_sys) begin
@@ -668,17 +673,17 @@ always @(posedge clk_sys) begin
 	tape_dl <= ioctl_download && ioctl_index[5:0] == 6'd1;
 	tape_motor_l <= tape_motor;
 	if (ioctl_download && ioctl_index[5:0] == 6'd1) begin
-		trim <= 0; look <= 0; need_look <= 0; gap <= 0;
+		trim <= 0; look <= 0; need_look <= 0; gap <= 0; d3_n <= 0; nm_n <= 0;
 		if (!tape_dl) begin tape_len <= 0; tape_big <= 0; end
-		if (tape_wr && ioctl_addr[24:16] == 0) tape_len <= ioctl_addr[16:0] + 1'd1;
-		if (tape_wr && ioctl_addr[24:16] != 0) tape_big <= 1'b1;
+		if (tape_wr && ioctl_addr[24:17] == 0) tape_len <= ioctl_addr[17:0] + 1'd1;
+		if (tape_wr && ioctl_addr[24:17] != 0) tape_big <= 1'b1;
 		tape_pos <= 0;
 		tape_tick <= 0;
 	end
 	else if (ta_len_set) tape_len <= {1'b0, ta_len};
 	else if (ta_app) tape_len <= tape_len + 1'd1;
 	else if (ta_busy) ;
-	else if (tape_rewind) begin tape_pos <= 0; trim <= 0; look <= 0; need_look <= 0; gap <= 0; end
+	else if (tape_rewind) begin tape_pos <= 0; trim <= 0; look <= 0; need_look <= 0; gap <= 0; d3_n <= 0; nm_n <= 0; end
 	else if (trim) begin
 		// a byte read at trim_a reaches tape_q a clock later
 		trim_ph <= ~trim_ph;
@@ -703,7 +708,7 @@ always @(posedge clk_sys) begin
 	end
 	else if (need_look) begin
 		need_look <= 0;
-		if (tape_pos != 0 && tape_pos + 17'd6 <= tape_len) begin
+		if (tape_pos != 0 && tape_pos + 18'd6 <= tape_len) begin
 			look <= 1'b1; trim_ph <= 0; look_n <= 0; trim_a <= tape_pos - 1'd1;
 		end
 	end
@@ -716,6 +721,9 @@ always @(posedge clk_sys) begin
 				tape_strobe <= 1'b1;
 				tape_pos <= tape_pos + 1'd1;
 				need_look <= 1'b1;
+				if (nm_n != 0) begin nm_n <= nm_n - 1'd1; if (nm_n == 3'd1) gap <= GAP; end
+				else if (tape_q == 8'hD3) d3_n <= d3_n == 4'd10 ? 4'd10 : d3_n + 1'd1;
+				else begin if (d3_n == 4'd10) nm_n <= 3'd5; d3_n <= 0; end
 			end
 		end
 		else tape_tick <= tape_tick + 1'd1;
@@ -751,7 +759,7 @@ tape_auto tape_auto
 	.model_set(model_set),
 	.model_req(model_req),
 	.dl(ioctl_download && ioctl_index[5:0] == 6'd1),
-	.wr(tape_wr && ioctl_addr[24:16] == 0),
+	.wr(tape_wr && ioctl_addr[24:17] == 0),
 	.addr(ioctl_addr[16:0]),
 	.data(ioctl_dout),
 	.len(tape_len),

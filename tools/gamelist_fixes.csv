@@ -6,3 +6,17 @@ e228c7ec,,,,,,,APPEND: MENU 3  Y  APPEND TAPE,Fruit Panic v1.0
 8a1557ab,,,2,,,,,AX-2 Dual: line 30 is SCREEN 2,2,2 (?FC Error with 1 page)
 2a155bac,,,2,,,,,AX-10 Seven: EXECs machine code inside its BASIC text (resets with 1 page)
 5437dcc5,mk2,4,1,,,,PICK THE RED SQUARE: OSD B/W COLOURS,Portopia: N60 Extended BASIC (mkII mode 4; a PC-6001 needs the cartridge) and 1 page; SCREEN 4 colours (Danjuro)
+4213bf4f,mk2,5,3,,,,,Tiny Druaga MkII: named {m2p3} in the Mister Friendly v2 set; its BASIC text is at 8801h (mode 5; 3 pages) (Danjuro)
+2038b03e,mk2,5,2,,,,AT OK: MOUNT PART 2,Umibe no Monogatari part 1: RUN pokes the machine code and ends at Ok; part 2 is CLOADed next (zivago)
+18c765eb,mk2,5,2,,{next},,,Umibe no Monogatari part 2: needs part 1's machine code: no reset (a reset gave ?FC Error) (zivago)
+bad20a07,mk2,5,2,,{next},,,White Day Happening! part 2: needs what part 1's RUN left in memory: no reset (a reset gave ?FC Error on Mister 126)
+c6f5b361,mk2,5,2,,{next},,,Tanabata part 2: needs what part 1's RUN left in memory: no reset (a reset gave ?FC Error on Mister 126)
+ca2d1da4,60,1,2,,{next},,,Magnet Bead part 2: needs what part 1's RUN left in memory: no reset (a reset gave ?FC Error on Mister 126)
+693eaf9f,60,2,2,,{next}\nRUN,,,Orkanoid II part 2: part 1 CLOADs it and stops at Ok: RUN is typed when the tape stops (Mister 126)
+fad31984,60,2,2,,{next}\nRUN,,,Cube Puzzle part 2: part 1 CLOADs it and stops at Ok: RUN is typed when the tape stops (Mister 126)
+7afdee27,60,1,2,,{next}\nRUN,,,Slayer part 2: part 1 CLOADs it and stops at Ok: RUN is typed when the tape stops (needs the gap after the header)
+20e0b387,,1,2,,{next}\nRUN,,,Slayer (T-En) part 2: part 1 CLOADs it and stops at Ok: RUN is typed when the tape stops (Mister 126)
+713fa0ae,60,1,2,,{next}\nRUN,,,Watashi no Kare wa Pilot Game part 2: part 1 CLOADs it and stops at Ok: RUN is typed when the tape stops (Mister 126)
+9c014938,60,1,2,,{next},,,Windy Wolf part 2: needs the machine code part 1's RUN left in memory: no reset (a reset stopped at How Many Pages? on Mister 126)
+6b9ef804,60,2,2,,CLOAD,,AT OK: MOUNT PART 2,Circumference - Onion House part 1: its RUN reads raw machine code from the tape, and this dump has the gap's noise as bytes before it: part 2 starts at the data, so only CLOAD is typed
+be0af4f8,60,2,2,,{next}\nRUN,,,Circumference - Onion House part 2: RUN (part 1 in memory) reads it from its first byte

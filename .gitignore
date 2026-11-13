@@ -48,3 +48,8 @@ runs/
 .DS_Store
 __pycache__/
 *.pyc
+
+# local build logs and tester packages
+verilator/build*.log
+releases/PC6001_tester_*.zip
+releases/pc-6001.zip
