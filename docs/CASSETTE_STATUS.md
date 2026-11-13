@@ -7,7 +7,7 @@ Results for the tape standard (`~/dev2/tape-standard.md`): 7x turbo, the status 
 
 | Feature | State |
 |---|---|
-| Formats | .p6 / .cas byte images; .p6t plays its byte image (the footer's gaps are skipped). Up to 64 KB |
+| Formats | .p6 / .cas byte images; .p6t plays its byte image (the footer's gaps are skipped). Up to 128 KB |
 | Tape speed | 7x (default) or Normal, Machine page; taken when the motor starts |
 | Turbo | Z80 x7 (27.96 MHz) only while the motor relay is on; tape bytes, the 2 ms timer and the sub CPU's delays count Z80 states; the display's bus steal is off meanwhile |
 | Quick start | none: the PC-6001 loads tapes with a typed CLOAD (standard: "Other machines") |

@@ -102,7 +102,7 @@ localparam CONF_STR = {
 	"P3O[6],Swap Alt/Win keys,No,Yes;",
 	"P3O[9],Port 2,Joystick,Touch panel (mouse);",
 
-	"I,Tape ready (rewound),Tape too large (64 KB max),Cartridge too large (16 KB max),Disk too large (512 KB max),No disk unit (boot.rom without DISK.ROM);",
+	"I,Tape ready (rewound),Tape too large (128 KB max),Cartridge too large (16 KB max),Disk too large (512 KB max),No disk unit (boot.rom without DISK.ROM);",
 	"v,0;",
 	"V,v",`BUILD_DATE,
 	";J1,Trigger 1,Trigger 2;",
@@ -234,7 +234,7 @@ wire [4:0] cidx;
 wire rgb_pix;
 wire [7:0] rgb_r, rgb_g, rgb_b;
 wire        tape_motor, tape_loaded, tape_too_big, tape_turbo_on, cart_too_big;
-wire [16:0] tape_position, tape_length;
+wire [17:0] tape_position, tape_length;
 wire         hint_show, hint_two, hint_force;
 wire [383:0] hint_text;
 
@@ -328,7 +328,7 @@ pc6001 #(.TURBO(TURBO)) pc6001
 	.dbg_io_wr(), .dbg_io_rd(), .dbg_io_port(), .dbg_io_data()
 );
 
-// One OSD message per tape download: ready (rewound), or cut off at 64 KB; and one for a cartridge cut off at
+// One OSD message per tape download: ready (rewound), or cut off at 128 KB; and one for a cartridge cut off at
 // 16 KB
 reg       tape_info_req = 0;
 reg [7:0] tape_info = 0;
@@ -363,8 +363,8 @@ tape_status tape_status
 	.loaded(tape_loaded | hint_force),
 	.playing(tape_motor && !hint_force),
 	.fast(tape_turbo_on),
-	.position({15'd0, tape_position}),
-	.length({15'd0, tape_length}),
+	.position({14'd0, tape_position}),
+	.length({14'd0, tape_length}),
 	.hz(18'd100),
 	.hint_show(hint_show),
 	.hint_two(hint_two),

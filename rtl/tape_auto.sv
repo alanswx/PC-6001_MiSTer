@@ -26,8 +26,9 @@
 //  The game list (rtl/pc6001_gamelist.svh, tools/gamelist.py) wins over both: a CRC-32 of the file, taken as it
 //  downloads, finds what the tape's names, readmes and testers say: mode, pages, keys to type (CLEAR before
 //  CLOAD, MON R-0 G9000), a hint shown for 10 s once the typing ends, bytes a bad dump lacks, and the model. With
-//  Tape auto-start, a model above the running one (whose ROMs Main loaded) is switched to before the typing: OSD
-//  Model changes with it. A PC-6001 tape on a later model stays there.
+//  Tape auto-start the list's model (whose ROMs Main loaded) is switched to before the typing, up or down: OSD
+//  Model changes with it. A tape the list does not place is switched up for when it shows N60m-BASIC itself
+//  (a monitor tape, a BASIC text at 8801h or C801h, a footer's mode).
 //
 //  The key script is PC6001VX's (p6el.cpp EL6::SetAutoStart, GetAutoKey): a prefix that answers the BASIC menu
 //  and "How Many Pages?" for the model, then the tape's command: its footer's, or CLOAD then RUN for a BASIC
@@ -45,9 +46,14 @@
 //  THE NEXT TAPE", over the tape bar.
 //
 //  Typed (enable): mounting a tape with a command and a known setup resets the machine and types the script,
-//  unless a program is waiting for the tape (the motor on, or the cassette open for loading): then the tape just
-//  plays, as for a game's second tape. Any other reset with such a tape at its start types it too, as PC6001VX
-//  does at power-on.
+//  unless a program is waiting for the tape (the motor on and the cassette open for loading, the last tape at
+//  its end): then the tape just plays, as for a game's second tape. A CLOAD typed here that is still waiting
+//  (it found no program: the wrong model) does not count, nor does a tape for another model. Any other reset with
+//  such a tape at its start types it too, as PC6001VX does at power-on.
+//
+//  A later part of a program (the list's keys begin with 18h; "{next}" in tools/gamelist_fixes.csv): what the
+//  tape before it left in memory is needed, so there is no reset and no menu answers: only the command is typed,
+//  and only when the tape before was typed through with no reset since.
 //============================================================================
 
 module tape_auto
@@ -67,18 +73,18 @@ module tape_auto
 	input             wr,
 	input      [16:0] addr,
 	input       [7:0] data,
-	input      [16:0] len,            // bytes downloaded
+	input      [17:0] len,            // bytes downloaded
 
 	// reading the image after the download (the footer)
 	output reg        rd_busy,
-	output reg [15:0] rd_addr,
+	output reg [16:0] rd_addr,
 	input       [7:0] rd_data,        // the byte at rd_addr, two clocks later
 	output reg        img_len_set,    // a P6T: only its byte image plays
-	output reg [15:0] img_len,
+	output reg [16:0] img_len,
 	output reg        app_we,         // a byte the game list adds after the image (a dump missing its last)
 	output reg  [7:0] app_data,
 
-	input      [16:0] pos,            // tape position
+	input      [17:0] pos,            // tape position
 	input             motor,
 	input             cmt_open,
 	input             vblank,
@@ -104,7 +110,11 @@ module tape_auto
 // While downloading: the BASIC header, the first program's start and its SCREEN pages
 //----------------------------------------------------------------------------
 
-reg        basic;                 // ten D3h bytes at the start
+reg        basic;                 // ten D3h bytes at the start, or after up to 118 bytes of noise before them
+                                  // (Runner, Circumference - Onion House: dumps that begin before the header;
+                                  // CLOAD skips to the D3h run as on a real tape)
+reg  [3:0] d3r;                   // D3h bytes in a row
+reg  [7:0] b_at;                  // where the program follows the header's name
 reg  [2:0] ps;                    // parse state
 localparam P_SKIP = 3'd0, P_LINK1 = 3'd1, P_NUM0 = 3'd2, P_NUM1 = 3'd3, P_LINE1 = 3'd4, P_BODY = 3'd5,
            P_END = 3'd6;
@@ -139,18 +149,17 @@ always @(posedge clk) begin
 		tail <= {data, tail[31:8]};
 		crc <= crc8(addr == 0 ? 32'hFFFFFFFF : crc, data);
 		if (addr == 0) begin
-			basic <= data == 8'hD3;
+			basic <= 1'b0; d3r <= data == 8'hD3 ? 4'd1 : 4'd0; b_at <= 8'd16;
 			hex <= data == 8'h9C;
 			h_in <= 0; h_end <= 0; ent_ok <= 0; h_pages <= 0;
 			ps <= P_SKIP; have_start <= 0; zrun <= 0; ss <= 0; scr_pages <= 3'd1;
 		end
 		else if (addr < 17'd10) begin
-			if (data != 8'hD3) basic <= 1'b0;
 			// six 9Ch, then the first record's line: 0Dh 0Ah ':'
 			if (addr < 17'd6 ? data != 8'h9C : addr == 17'd6 ? data != 8'h0D : addr == 17'd7 ? data != 8'h0A :
 			    addr == 17'd8 ? data != ":" : 1'b0) hex <= 1'b0;
 		end
-		else if (addr >= 17'd16 && basic) begin
+		else if (addr >= {9'd0, b_at} && basic) begin
 			case (ps)
 			P_SKIP:  if (data != 0) begin link[7:0] <= data; line_at <= addr; ps <= P_LINK1; end
 			P_LINK1: begin link[15:8] <= data; ps <= P_NUM0; end
@@ -172,6 +181,10 @@ always @(posedge clk) begin
 			end
 			default: ;
 			endcase
+		end
+		if (addr != 0 && addr < 17'd128 && !basic) begin
+			d3r <= data == 8'hD3 ? d3r + 1'd1 : 4'd0;
+			if (data == 8'hD3 && d3r == 4'd9) begin basic <= 1'b1; b_at <= addr[7:0] + 8'd7; end
 		end
 		if (addr >= 17'd6 && hex && !h_end) begin
 			if (data == ":") begin h_in <= 1'b1; h_lo <= 0; h_i <= 0; end
@@ -253,6 +266,7 @@ reg  [7:0] p_q;
 always @(posedge clk) g_q <= gl_entry(gi);
 always @(posedge clk) p_q <= gl_byte(pa);
 reg        l_hit, l_cmd, l_hint, l_two;
+reg        l_next;                // the keys began with 18h: a later part of the last tape's program
 reg  [2:0] l_model, l_mode, l_pages;
 reg [383:0] l_text;
 reg  [1:0] rs;                    // the record's part: the keys, the hint, the count, the bytes
@@ -272,12 +286,12 @@ always @(posedge clk) begin
 	info_done <= info_new;
 	if (dl) begin
 		fs <= F_IDLE; rd_busy <= 0; p6t <= 0; f_start <= 0; ask_len <= 0;
-		l_hit <= 0; l_cmd <= 0; l_hint <= 0; l_two <= 0; l_model <= 0; l_mode <= 0; l_pages <= 0;
+		l_hit <= 0; l_cmd <= 0; l_hint <= 0; l_two <= 0; l_next <= 0; l_model <= 0; l_mode <= 0; l_pages <= 0;
 	end
 	else if (old_dl) begin
 		// the download just ended: a footer at the place the last four bytes give?
-		if (len >= 17'd13 && tail[31:16] == 0 && tail[15:0] != 0 && {1'b0, tail[15:0]} + 17'd9 <= len) begin
-			rd_addr <= tail[15:0]; rd_busy <= 1'b1; fi <= 0; fs <= F_WAIT;
+		if (len >= 18'd13 && tail[31:17] == 0 && tail[16:0] != 0 && {1'b0, tail[16:0]} + 18'd9 <= len) begin
+			rd_addr <= tail[16:0]; rd_busy <= 1'b1; fi <= 0; fs <= F_WAIT;
 		end
 		else begin fs <= F_LIST; gi <= 0; end
 	end
@@ -287,7 +301,7 @@ always @(posedge clk) begin
 	F_TAKE: begin
 		fi <= fi + 1'd1;
 		case (fi)
-		7'd1: if (rd_data == "6") begin p6t <= 1'b1; img_len_set <= 1'b1; img_len <= tail[15:0]; end
+		7'd1: if (rd_data == "6") begin p6t <= 1'b1; img_len_set <= 1'b1; img_len <= tail[16:0]; end
 		7'd4: f_start <= rd_data != 0;
 		7'd5: f_basic <= rd_data;
 		7'd6: f_page <= rd_data;
@@ -316,6 +330,7 @@ always @(posedge clk) begin
 			pa <= pa + 1'd1;
 			case (rs)
 			2'd0: if (p_q == 0) begin rs <= 2'd1; ri <= 0; end
+			      else if (p_q == 8'h18) l_next <= 1'b1;
 			      else begin ask[ri] <= p_q; ask_len <= {1'b0, ri} + 1'd1; l_cmd <= 1'b1; ri <= ri + 1'd1; end
 			2'd1: if (p_q == 0) rs <= 2'd2;
 			      else if (p_q == 8'h0A) begin ri <= 6'd24; l_two <= 1'b1; end
@@ -420,15 +435,28 @@ wire known = model == 2'd0 ? pages != 0 : (mode != 0 && (mode != 4'd6 || model =
 // a monitor tape that does not start itself (no F89Fh word; its G address is unknown) is only shown
 wire auto_ok = has_cmd && known && (own_cmd || !mon || ent_ok == 2'b11);
 
-// the list's model, when it is above the running one and its ROMs are there (a PC-6001 tape runs on the others)
+// The model the tape wants: the list's, or (the list silent on model and mode) the least the tape itself shows:
+// the mkII for a monitor tape or a BASIC text at 8801h / C801h (N60m-BASIC), and for a footer's modes 3-5; the
+// mkIISR for a footer's mode 6. Switched to when its ROMs are there and it is above the running one, or, for the
+// list's, below it: a PC-6001 tape goes back to the PC-6001 (not every one runs in the mkII's modes 1 and 2).
+// A mkII tape stays on a PC-6601.
 wire [1:0] l_m = 2'(l_model - 3'd1);
-wire       switch = enable && l_hit && l_model != 0 && l_m > model && models[l_m];
+wire       l_exact = l_hit && l_model != 0;
+wire       f_ok = p6t && f_basic != 0 && f_basic <= 8'd6 && f_page != 0 && f_page <= 8'd4;
+wire [1:0] t_model = l_mode != 0 ? 2'd0 :
+                     hex ? 2'd1 :
+                     f_ok ? (f_basic == 8'd6 ? 2'd3 : f_basic >= 8'd3 ? 2'd1 : 2'd0) :
+                     basic && have_start && (text_start == 16'h8801 || text_start == 16'hC801) ? 2'd1 : 2'd0;
+wire [1:0] want = l_exact ? l_m : t_model;
+wire       w_up = want > model;
+wire       w_down = l_exact && want < model && !(want == 2'd1 && model == 2'd2);
+wire       switch = enable && (w_up || w_down) && models[want];
 // above it and not switched to: only the wrong-model hint, no typing
-wire       l_above = l_hit && l_model != 0 && l_m > model && !switch;
+wire       l_above = w_up && !switch;
 
 // synthesis translate_off
-always @(posedge clk) if (info_done) $display("[tape_auto] list crc %h hit %0d model %0d mode %0d pages %0d cmd %0d hint %0d switch %0d",
-                                               ~crc, l_hit, l_model, l_mode, l_pages, l_cmd, l_hint, switch);
+always @(posedge clk) if (info_done) $display("[tape_auto] list crc %h hit %0d model %0d mode %0d pages %0d cmd %0d hint %0d switch %0d to %0d cont %0d next %0d ran %0d",
+                                               ~crc, l_hit, l_model, l_mode, l_pages, l_cmd, l_hint, switch, want, cont, l_next, ran);
 always @(posedge clk) if (info_done) $display("[tape_auto] hex %0d ent %h/%0d hpg %0d basic %0d start %h scr %0d p6t %0d fb %0d fp %0d st %0d ask %0d mode %0d pages %0d cmd %0d ok %0d", hex, ent, ent_ok, h_pages, basic, text_start, scr_pages, p6t, f_basic, f_page, f_start, ask_len, mode, pages, has_cmd, auto_ok);
 // synthesis translate_on
 
@@ -442,6 +470,8 @@ reg  [7:0] ip;                    // script index: the prefix, then the command
 reg  [8:0] twait;
 reg        rel_on, rel_off;
 reg        pend;                  // a typed key not taken yet
+reg        old_dl_t, cont;        // the tape came to a program waiting for it
+reg        ran;                   // a tape's keys were all typed, and no reset since
 reg  [4:0] rst_cnt;
 wire       frame = vblank && !old_vb;
 wire [8:0] cur  = ip < pre_len ? pre_at(ip[3:0]) : {1'b1, cmd_at(7'(ip - pre_len))};
@@ -456,18 +486,23 @@ always @(posedge clk) begin
 	auto_reset <= rst_cnt != 0;
 	if (rst_cnt != 0) rst_cnt <= rst_cnt - 1'd1;
 
-	// a new tape: reset and type, unless a program waits for it; first the list's model
+	// A new tape: reset and type, first the model it wants. Not when a program waits for it (a game's next tape):
+	// the motor on and the cassette open with the last tape played out (or none), and nothing of ours still
+	// waiting there: a CLOAD we typed that never found its program (the wrong model or mode) is not a game. A tape
+	// for another model is never a game's next.
 	model_set <= 1'b0;
-	if (info_done && enable && (auto_ok && !l_above || switch) && !motor && !cmt_open) begin
+	old_dl_t <= dl;
+	if (dl && !old_dl_t) cont <= motor && cmt_open && !typing && (len == 0 || pos >= len);
+	if (info_done && enable && !l_next && (auto_ok && !l_above && !cont || switch)) begin
 		rst_cnt <= 5'd31;
-		if (switch) begin model_set <= 1'b1; model_req <= l_m; end
+		if (switch) begin model_set <= 1'b1; model_req <= want; end
 	end
 	if (dl) typing <= 1'b0;
 
-	if (reset) typing <= 1'b0;
+	if (reset) begin typing <= 1'b0; ran <= 1'b0; end
 	else if (old_reset) begin
 		// after a reset, a tape at its start that can be typed is
-		if (enable && auto_ok && !l_above && pos == 0 && fs == F_DONE) begin
+		if (enable && auto_ok && !l_above && !l_next && pos == 0 && fs == F_DONE) begin
 			typing <= 1'b1; ip <= 0; twait <= 9'd60; rel_on <= 0; rel_off <= 0; pend <= 0;
 		end
 	end
@@ -476,7 +511,7 @@ always @(posedge clk) begin
 		else if (rel_on) begin if (motor) rel_on <= 1'b0; end
 		else if (rel_off) begin if (!motor) rel_off <= 1'b0; end
 		else if (twait != 0) twait <= twait - 1'd1;
-		else if (at_end) typing <= 1'b0;
+		else if (at_end) begin typing <= 1'b0; ran <= 1'b1; end
 		else if (!cur[8]) ip <= ip + 1'd1;
 		else case (cur[7:0])
 		8'h17: begin twait <= {1'b0, nxt}; ip <= ip + 2'd2; end
@@ -490,6 +525,14 @@ always @(posedge clk) begin
 			if (cur[7:0] == 8'h0A) begin rel_on <= 1'b1; rel_off <= 1'b1; end
 		end
 		endcase
+	end
+	// A later part (the list's): the program of the tape before it must stay in memory (Umibe no Monogatari's
+	// part 1 pokes the machine code part 2 calls), so no reset and no answers to the menu: only the command, once
+	// the tape before was typed through. Mounted cold, nothing is typed.
+	// When the program before is itself loading it (cont: Orkanoid II's part 1 CLOADs part 2 and stops at Ok),
+	// the command (RUN) waits for the tape to stop.
+	if (info_done && enable && l_next && ran && auto_ok && !l_above && !reset) begin
+		typing <= 1'b1; ip <= {4'd0, pre_len}; twait <= 9'd60; rel_on <= cont; rel_off <= cont; pend <= 0;
 	end
 end
 
@@ -611,6 +654,9 @@ wire l_show = l_cnt != 0 && !hint_wait;
 // The wrong model: a program wrote a port the running model lacks (a mkII's on the PC-6001, a mkIISR's on the
 // mkII or PC-6601), or the game list's model is above the running one and auto-start could not switch. Once a
 // tape, or a reset other than auto-start's; for 10 s of a stopped tape, or until a key.
+// A tape the game list gives the running model (or one below it) writes such a port harmlessly: Door Door's
+// PC-6001 version sets the mkII's interrupt mask (OUT F3h) to run on both. No hint for it.
+wire       l_here = l_exact && want <= model;
 reg  [9:0] m_cnt;
 reg        m_done, m_sr, m_key, m_auto;
 always @(posedge clk) begin
@@ -619,11 +665,11 @@ always @(posedge clk) begin
 	if (auto_reset) m_auto <= 1'b1;
 	else if (!reset) m_auto <= 1'b0;
 	if (dl || (reset && !auto_reset && !m_auto)) begin m_done <= 0; m_cnt <= 0; end
-	else if (!m_done && (need_mk2 || need_sr || (info_done && l_above))) begin
+	else if (!m_done && ((need_mk2 || need_sr) && !l_here || (info_done && l_above))) begin
 		m_done <= 1'b1; m_cnt <= 10'd600;
-		m_sr <= need_sr || (!need_mk2 && l_above && l_m == 2'd3);
+		m_sr <= need_sr || (!need_mk2 && l_above && want == 2'd3);
 		// synthesis translate_off
-		$display("[tape_auto] wrong model: needs %s", need_sr || (!need_mk2 && l_above && l_m == 2'd3) ? "SR" : "mkII");
+		$display("[tape_auto] wrong model: needs %s", need_sr || (!need_mk2 && l_above && want == 2'd3) ? "SR" : "mkII");
 		// synthesis translate_on
 	end
 	else if (ps2_key[10] != m_key && ps2_key[9]) m_cnt <= 0;

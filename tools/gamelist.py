@@ -9,6 +9,8 @@ Scans directories of .p6/.cas/.p6t images and reads what their names and readmes
   - "(mkII)" in a name; a directory named for a machine (6001, 6001mkII, 6001mkIISR, 6601).
   - the Mister Friendly set's tags: {p2}, {p2 - clear 10,&hd5ff}, {mode5p2 clear100,&h8fff mon R0 G9000}.
 tools/gamelist_fixes.csv (crc32 or file name, then the fields to replace) wins over all of these: testers' notes.
+A BASIC tape whose text starts where only N60m-BASIC puts it, under a name that says mode 1 or 2, goes to the
+conflicts file (Tiny Druaga MkII was {m2p3} in one set).
 
   ./gamelist.py --out gamelist.csv --svh ../rtl/pc6001_gamelist.svh "PC6001 Mister Friendly v2" ../refs/software \\
       ../releases/tester/games
@@ -18,7 +20,8 @@ fixes), and otherwise the first directory given (gamelist_conflicts.txt lists th
 
 Model: the earliest machine the tape runs on (60, mk2, 66, sr). Mode: 1 N60-BASIC 16 KB, 2 N60-BASIC 32 KB, 3/4
 N60 Extended BASIC, 5 N60m-BASIC, 6 N66SR-BASIC. Append: hex bytes played after the image (a dump missing its
-last bytes). Empty fields: the core's own guesses (rtl/tape_auto.sv).
+last bytes). Empty fields: the core's own guesses (rtl/tape_auto.sv). A command that begins with {next} is a
+later part of a program (part 1 is RUN, then part 2 CLOADed over it): typed without a reset.
 """
 import argparse, csv, os, re, sys, zlib
 
@@ -30,6 +33,25 @@ MODELS = ["60", "mk2", "66", "sr"]
 def crc32(path):
     with open(path, "rb") as f:
         return "%08x" % (zlib.crc32(f.read()) & 0xFFFFFFFF), os.path.getsize(path)
+
+
+def basic_start(path):
+    """Where BASIC kept the first program's text (its first line's link less the line's length), as rtl/tape_auto.sv
+    reads it: C401h / 8401h the PC-6001's BASIC with 16 / 32 KB, 8801h / C801h N60m-BASIC (mode 5). None: no BASIC
+    header."""
+    d = open(path, "rb").read()
+    k = d[:128].find(b"\xd3" * 10)   # up to 118 bytes of noise before the header, as rtl/tape_auto.sv allows
+    if k < 0:
+        return None
+    i = k + 16
+    while i < len(d) and d[i] == 0:
+        i += 1
+    j = i + 4
+    while j < len(d) and d[j]:
+        j += 1
+    if j >= len(d):
+        return None
+    return ((d[i] | d[i + 1] << 8) - (j + 1 - i)) & 0xFFFF
 
 
 def readme_model(folder):
@@ -124,6 +146,10 @@ def script(g):
     then wait for the tape relay to close and open (a command that loads). Empty: the core's own command."""
     before = [t for t in g.get("before", "").split("\\n") if t]
     cmd = [t for t in g.get("command", "").split("\\n") if t]
+    # {next}: a later part of the last tape's program: 18h first (no reset, no menu answers: only the command)
+    if cmd and cmd[0].lower() == "{next}":
+        g = dict(g, command="\\n".join(cmd[1:]))
+        return b"\x18" + script(g)
     # MON, R0 alone is the core's own command for a monitor tape (which adds G and the start for Hudson's loader)
     if not before and (not cmd or [t.lower().replace("-", "") for t in cmd] == ["mon", "r0"]):
         return b""
@@ -198,6 +224,10 @@ def main():
                 path = os.path.join(root, n)
                 crc, size = crc32(path)
                 e = from_name(path)
+                # a name that says mode 1 or 2 (or the PC-6001) over a program saved from N60m-BASIC
+                if basic_start(path) in (0x8801, 0xC801) and (e.get("mode") in ("1", "2") or e.get("model") == "60"):
+                    conflicts.append(f"{crc} text at {basic_start(path):04X}h is mode 5, the name says "
+                                     f"mode {e.get('mode', '')} model {e.get('model', '')} ({path})")
                 m = re.search(r"^(.*/NEC PC-6001/[^/]+)/", path.replace("\\", "/"))
                 if m and "model" not in e:
                     if m.group(1) not in readmes:
